@@ -1,0 +1,43 @@
+blueprint:
+  name: Prevent blinds from closing if the window is open
+  description: "Prevent blinds from closing if the window is open."
+  domain: automation
+  input:
+    window_sensor:
+      name: Window Sensor
+      description: The sensor that detects if the window is open
+      selector:
+        entity:
+          domain: binary_sensor
+    blind_cover:
+      name: Blind
+      description: The blind to control
+      selector:
+        entity:
+          domain: cover
+
+trigger:
+  - platform: state
+    entity_id: !input window_sensor
+    from: 'off'
+    to: 'on'
+  - platform: state
+    entity_id: !input blind_cover
+    attribute: current_position
+    below: 100
+    above: 0
+
+condition:
+  - condition: state
+    entity_id: !input window_sensor
+    state: 'on'
+
+action:
+  - service: cover.stop_cover
+    target:
+      entity_id: !input blind_cover
+  - service: cover.open_cover
+    target:
+      entity_id: !input blind_cover
+
+mode: single
