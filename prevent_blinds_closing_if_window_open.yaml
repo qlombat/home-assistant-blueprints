@@ -17,29 +17,25 @@ blueprint:
           domain: cover
 
 trigger:
-  - platform: device
-    type: opened
+  - platform: state
     entity_id: !input.window_sensor
-    domain: binary_sensor
-  - platform: device
-    domain: cover
+    to: 'on'
+  - platform: state
     entity_id: !input.blind_cover
-    type: position
-    above: 0
-    below: 100
+    from: 'open'
+    to: 'closed'
 
 condition:
-  - condition: device
-    type: is_open
+  - condition: state
     entity_id: !input.window_sensor
-    domain: binary_sensor
+    state: 'on'
 
 action:
-  - domain: cover
-    entity_id: !input.blind_cover
-    type: stop
-  - domain: cover
-    entity_id: !input.blind_cover
-    type: open
+  - service: cover.stop_cover
+    target:
+      entity_id: !input.blind_cover
+  - service: cover.open_cover
+    target:
+      entity_id: !input.blind_cover
 
 mode: single
