@@ -18,26 +18,25 @@ blueprint:
 
 trigger:
   - platform: state
-    entity_id: !input window_sensor
-    from: 'off'
+    entity_id: !input.window_sensor
     to: 'on'
-  - platform: state
-    entity_id: !input blind_cover
+  - platform: numeric_state
+    entity_id: !input.blind_cover
     attribute: current_position
     below: 100
     above: 0
 
 condition:
   - condition: state
-    entity_id: !input window_sensor
+    entity_id: !input.window_sensor
     state: 'on'
 
 action:
   - service: cover.stop_cover
     target:
-      entity_id: !input blind_cover
+      entity_id: !input.blind_cover
   - service: cover.open_cover
     target:
-      entity_id: !input blind_cover
+      entity_id: !input.blind_cover
 
 mode: single
