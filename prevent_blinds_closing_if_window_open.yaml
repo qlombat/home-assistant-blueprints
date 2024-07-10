@@ -15,7 +15,6 @@ blueprint:
       selector:
         entity:
           domain: cover
-
 trigger:
   - platform: state
     entity_id: !input window_sensor
