@@ -1,6 +1,6 @@
 blueprint:
-  name: Prevent blinds from closing if the window is open
-  description: "Prevent blinds from closing if the window is open."
+  name: Prevent blind from closing if the window is open
+  description: Prevent blind from closing if the window is open.
   domain: automation
   input:
     window_sensor:
@@ -15,14 +15,16 @@ blueprint:
       selector:
         entity:
           domain: cover
+
 trigger:
   - platform: state
     entity_id: !input window_sensor
     to: 'on'
   - platform: state
     entity_id: !input blind_cover
-    from: 'open'
-    to: 'closed'
+    attribute: current_position
+    below: 100
+    above: 0
 
 condition:
   - condition: state
