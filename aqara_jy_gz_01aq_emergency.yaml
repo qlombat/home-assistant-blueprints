@@ -1,0 +1,554 @@
+blueprint:
+  name: Aqara JY-GZ-01AQ – Multi-detector link + emergency bundle (no Z2M group)
+  description: >
+    Sync ringing/muting across selected JY-GZ-01AQ smoke detectors and run optional
+    emergency actions (HVAC off, lights on/flash, TTS, camera snapshot, critical push,
+    escalation, all-clear, low battery alert, monthly test reminder, sensitivity by time).
+    Works with Zigbee2MQTT; ensure each detector has 'linkage_alarm' enabled.
+  domain: automation
+
+  input:
+    # --- Core ---
+    detectors:
+      name: Detectors to synchronize
+      description: Select all your Aqara JY-GZ-01AQ devices (MQTT/Zigbee2MQTT integration).
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: mqtt
+              manufacturer: Aqara
+              model: JY-GZ-01AQ
+    notify_service:
+      name: Primary notify service
+      description: e.g. notify.notify or notify.mobile_app_your_phone
+      default: notify.notify
+      selector: { text: {} }
+
+    # --- Optional emergency actions (toggle + targets) ---
+    opt_hvac_off:
+      name: Turn off HVAC and fans on SMOKE
+      default: true
+      selector: { boolean: {} }
+    climates:
+      name: Climate entities to turn off (optional)
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: climate
+    fans:
+      name: Fan entities to turn off (optional)
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: fan
+
+    opt_lights_on:
+      name: Turn on/flash lights on SMOKE
+      default: true
+      selector: { boolean: {} }
+    lights_target:
+      name: Lights target (areas/devices/entities)
+      description: Choose lights/areas to turn on (100%). Can be empty.
+      selector: { target: {} }
+    lights_flash:
+      name: Flash lights (short) on SMOKE
+      default: false
+      selector: { boolean: {} }
+
+    opt_unlock:
+      name: Unlock selected locks on SMOKE (use with care)
+      default: false
+      selector: { boolean: {} }
+    locks:
+      name: Locks to unlock (optional)
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: lock
+
+    opt_open_covers:
+      name: Open selected covers/blinds on SMOKE
+      default: false
+      selector: { boolean: {} }
+    covers:
+      name: Covers to open (optional)
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: cover
+
+    opt_tts:
+      name: TTS announcement on SMOKE
+      default: false
+      selector: { boolean: {} }
+    tts_service:
+      name: TTS service (e.g. tts.cloud_say or tts.google_translate_say)
+      default: tts.google_translate_say
+      selector: { text: {} }
+    media_players:
+      name: Media players for TTS
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: media_player
+    tts_message:
+      name: TTS message
+      default: "Smoke detected in {{ source_name }}. Evacuate immediately."
+      selector: { text: {} }
+
+    opt_camera_snapshot:
+      name: Camera snapshot on SMOKE
+      default: false
+      selector: { boolean: {} }
+    cameras:
+      name: Cameras to snapshot
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: camera
+    snapshot_path:
+      name: Snapshot path (must exist)
+      description: Path under /config or /media. Example: /config/www/snapshots
+      default: /config/www/snapshots
+      selector: { text: {} }
+
+    # --- Notifications ---
+    opt_critical_push:
+      name: Use critical push data (if supported by your mobile app)
+      default: true
+      selector: { boolean: {} }
+    escalation_notify_service:
+      name: Escalation notify service (optional second target)
+      default: ""
+      selector: { text: {} }
+    escalation_delay_sec:
+      name: Escalation delay (seconds)
+      default: 120
+      selector:
+        number:
+          min: 30
+          max: 900
+          step: 10
+          mode: box
+
+    # --- All-clear ---
+    opt_all_clear:
+      name: Send ALL CLEAR when smoke clears
+      default: true
+      selector: { boolean: {} }
+    all_clear_delay_sec:
+      name: All-clear delay (seconds) to avoid flapping
+      default: 120
+      selector:
+        number:
+          min: 30
+          max: 900
+          step: 10
+          mode: box
+    all_clear_force_mute:
+      name: Also force 'mute' to all detectors on ALL CLEAR
+      default: true
+      selector: { boolean: {} }
+
+    # --- Low battery alert ---
+    opt_low_battery:
+      name: Alert on low battery from Z2M payload
+      default: true
+      selector: { boolean: {} }
+    battery_threshold:
+      name: Battery threshold (%)
+      default: 20
+      selector:
+        number:
+          min: 5
+          max: 50
+          step: 5
+          mode: slider
+
+    # --- Monthly test reminder ---
+    opt_monthly_test:
+      name: Monthly test reminder
+      default: true
+      selector: { boolean: {} }
+    test_day_of_month:
+      name: Day of month for test (1-28)
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 28
+          step: 1
+          mode: box
+    test_time:
+      name: Test time (local)
+      default: "10:00:00"
+      selector: { time: {} }
+
+    # --- Sensitivity profile (optional; only if supported by device) ---
+    opt_sensitivity_by_time:
+      name: Adjust sensitivity by time (if supported in Z2M)
+      default: false
+      selector: { boolean: {} }
+    night_start:
+      name: Night start time
+      default: "22:00:00"
+      selector: { time: {} }
+    day_start:
+      name: Day start time
+      default: "07:00:00"
+      selector: { time: {} }
+    night_sensitivity:
+      name: Night sensitivity value (device-specific; e.g., 'high')
+      default: "high"
+      selector: { text: {} }
+    day_sensitivity:
+      name: Day sensitivity value (device-specific; e.g., 'medium')
+      default: "medium"
+      selector: { text: {} }
+
+mode: parallel
+max: 20
+
+trigger:
+  # Zigbee2MQTT state from any device
+  - id: mqtt_any
+    platform: mqtt
+    topic: zigbee2mqtt/+
+  # Monthly test reminder (fires daily at time; we gate by day-of-month)
+  - id: monthly_test_time
+    platform: time
+    at: !input test_time
+  # Sensitivity scheduler (optional)
+  - id: set_night_sensitivity
+    platform: time
+    at: !input night_start
+  - id: set_day_sensitivity
+    platform: time
+    at: !input day_start
+
+variables:
+  detectors: !input detectors
+  notify_service: !input notify_service
+  escalation_notify_service: !input escalation_notify_service
+  escalation_delay_sec: !input escalation_delay_sec
+
+  opt_hvac_off: !input opt_hvac_off
+  climates: !input climates
+  fans: !input fans
+
+  opt_lights_on: !input opt_lights_on
+  lights_target: !input lights_target
+  lights_flash: !input lights_flash
+
+  opt_unlock: !input opt_unlock
+  locks: !input locks
+
+  opt_open_covers: !input opt_open_covers
+  covers: !input covers
+
+  opt_tts: !input opt_tts
+  tts_service: !input tts_service
+  media_players: !input media_players
+  tts_message: !input tts_message
+
+  opt_camera_snapshot: !input opt_camera_snapshot
+  cameras: !input cameras
+  snapshot_path: !input snapshot_path
+
+  opt_critical_push: !input opt_critical_push
+
+  opt_all_clear: !input opt_all_clear
+  all_clear_delay_sec: !input all_clear_delay_sec
+  all_clear_force_mute: !input all_clear_force_mute
+
+  opt_low_battery: !input opt_low_battery
+  battery_threshold: !input battery_threshold
+
+  opt_monthly_test: !input opt_monthly_test
+  test_day_of_month: !input test_day_of_month
+
+  opt_sensitivity_by_time: !input opt_sensitivity_by_time
+  night_sensitivity: !input night_sensitivity
+  day_sensitivity: !input day_sensitivity
+
+  # MQTT payload helpers
+  source_name: >
+    {% if trigger.id == 'mqtt_any' %}
+      {% set parts = trigger.topic.split('/') %}
+      {% if parts|length > 1 %}{{ parts[1] }}{% else %}unknown{% endif %}
+    {% else %}scheduler{% endif %}
+  payload_json: >
+    {% if trigger.id == 'mqtt_any' %}
+      {% set p = trigger.payload | default('', true) | trim %}
+      {% if p and p[0] in ['{','['] %}{{ p | from_json }}{% else %}{{ dict() }}{% endif %}
+    {% else %}{{ dict() }}{% endif %}
+
+condition: []
+
+action:
+  - choose:
+
+      # =================== SMOKE DETECTED ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'mqtt_any' }}"
+              - condition: template
+                value_template: "{{ payload_json is mapping and payload_json.get('smoke') == true }}"
+        sequence:
+          # Ring all selected detectors
+          - repeat:
+              for_each: "{{ detectors }}"
+              sequence:
+                - variables:
+                    dev_name: "{{ device_attr(repeat.item, 'name') }}"
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ dev_name }}/set"
+                    payload: '{"buzzer":"alarm"}'
+                    qos: 1
+
+          # Core notification (optionally critical)
+          - service: "{{ notify_service }}"
+            data:
+              title: "🔥 Smoke detected"
+              message: >
+                Source: {{ source_name }}{% if payload_json.get('smoke_density') is not none %}
+                (density={{ payload_json.get('smoke_density') }}){% endif %}.
+                All selected detectors have been triggered.
+              data: >
+                {% if opt_critical_push %}
+                {{ {'ttl': 0, 'priority': 'high', 'push': {'sound': 'alarm'}} }}
+                {% else %}{{ dict() }}{% endif %}
+
+          - service: persistent_notification.create
+            data:
+              title: "Smoke detected"
+              message: >
+                Source: {{ source_name }}{% if payload_json.get('smoke_density') is not none %}
+                (density={{ payload_json.get('smoke_density') }}){% endif %}.
+                All alarms activated.
+
+          # Emergency bundle (optional pieces)
+          - if:
+              - condition: template
+                value_template: "{{ opt_hvac_off and (climates|length > 0 or fans|length > 0) }}"
+            then:
+              - choose:
+                  - conditions: "{{ climates|length > 0 }}"
+                    sequence:
+                      - repeat:
+                          for_each: "{{ climates }}"
+                          sequence:
+                            - service: climate.turn_off
+                              target: { entity_id: "{{ repeat.item }}" }
+                  - conditions: "{{ fans|length > 0 }}"
+                    sequence:
+                      - repeat:
+                          for_each: "{{ fans }}"
+                          sequence:
+                            - service: fan.turn_off
+                              target: { entity_id: "{{ repeat.item }}" }
+
+          - if:
+              - condition: template
+                value_template: "{{ opt_lights_on }}"
+            then:
+              - service: light.turn_on
+                target: !input lights_target
+                data:
+                  brightness_pct: 100
+                  {% if lights_flash %}flash: short{% endif %}
+
+          - if:
+              - condition: template
+                value_template: "{{ opt_unlock and (locks|length > 0) }}"
+            then:
+              - repeat:
+                  for_each: "{{ locks }}"
+                  sequence:
+                    - service: lock.unlock
+                      target: { entity_id: "{{ repeat.item }}" }
+
+          - if:
+              - condition: template
+                value_template: "{{ opt_open_covers and (covers|length > 0) }}"
+            then:
+              - repeat:
+                  for_each: "{{ covers }}"
+                  sequence:
+                    - service: cover.open_cover
+                      target: { entity_id: "{{ repeat.item }}" }
+
+          - if:
+              - condition: template
+                value_template: "{{ opt_tts and (media_players|length > 0) }}"
+            then:
+              - repeat:
+                  for_each: "{{ media_players }}"
+                  sequence:
+                    - service: "{{ tts_service }}"
+                      data:
+                        entity_id: "{{ repeat.item }}"
+                        message: "{{ tts_message }}"
+
+          - if:
+              - condition: template
+                value_template: "{{ opt_camera_snapshot and (cameras|length > 0) }}"
+            then:
+              - repeat:
+                  for_each: "{{ cameras }}"
+                  sequence:
+                    - service: camera.snapshot
+                      data:
+                        entity_id: "{{ repeat.item }}"
+                        filename: >
+                          {{ snapshot_path }}/smoke_{{ now().timestamp() | int }}_{{ repeat.item.split('.')[-1] }}.jpg
+
+          # Escalation (optional)
+          - if:
+              - condition: template
+                value_template: "{{ escalation_notify_service | length > 0 }}"
+            then:
+              - delay:
+                  seconds: "{{ escalation_delay_sec | int }}"
+              - service: "{{ escalation_notify_service }}"
+                data:
+                  title: "🔥 Smoke detected (escalation)"
+                  message: >
+                    Follow-up: Smoke event originated at {{ source_name }}.
+                    Ensure everyone is alerted.
+
+      # =================== MANUAL MUTE (button press) ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'mqtt_any' }}"
+              - condition: template
+                value_template: "{{ payload_json is mapping and payload_json.get('buzzer_manual_mute') == true }}"
+        sequence:
+          - repeat:
+              for_each: "{{ detectors }}"
+              sequence:
+                - variables:
+                    dev_name: "{{ device_attr(repeat.item, 'name') }}"
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ dev_name }}/set"
+                    payload: '{"buzzer":"mute"}'
+                    qos: 1
+          - service: "{{ notify_service }}"
+            data:
+              title: "Smoke alarms muted"
+              message: "Muted by {{ source_name }} — all detectors silenced."
+
+      # =================== ALL CLEAR ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'mqtt_any' }}"
+              - condition: template
+                value_template: "{{ opt_all_clear and payload_json is mapping and payload_json.get('smoke') == false }}"
+        sequence:
+          - delay:
+              seconds: "{{ all_clear_delay_sec | int }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "✅ All clear"
+              message: "Smoke cleared at {{ source_name }}."
+          - if:
+              - condition: template
+                value_template: "{{ all_clear_force_mute }}"
+            then:
+              - repeat:
+                  for_each: "{{ detectors }}"
+                  sequence:
+                    - variables:
+                        dev_name: "{{ device_attr(repeat.item, 'name') }}"
+                    - service: mqtt.publish
+                      data:
+                        topic: "zigbee2mqtt/{{ dev_name }}/set"
+                        payload: '{"buzzer":"mute"}'
+                        qos: 1
+
+      # =================== LOW BATTERY ALERT ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'mqtt_any' }}"
+              - condition: template
+                value_template: >
+                  {{ opt_low_battery and payload_json is mapping and
+                     payload_json.get('battery') is not none and
+                     (payload_json.get('battery') | int(101)) <= (battery_threshold | int) }}
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "🪫 Low battery (smoke detector)"
+              message: >
+                {{ source_name }} battery is {{ payload_json.get('battery') }}%.
+                Threshold: {{ battery_threshold }}%. Please replace soon.
+
+      # =================== MONTHLY TEST REMINDER ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'monthly_test_time' }}"
+              - condition: template
+                value_template: "{{ opt_monthly_test }}"
+              - condition: template
+                value_template: "{{ now().day == (test_day_of_month | int) }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "🧪 Monthly smoke alarm test"
+              message: >
+                Please press the test button on at least one detector
+                and confirm it rings all others. Log the result.
+
+      # =================== SENSITIVITY BY TIME (if supported) ===================
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ opt_sensitivity_by_time }}"
+              - condition: template
+                value_template: "{{ trigger.id in ['set_night_sensitivity','set_day_sensitivity'] }}"
+        sequence:
+          - variables:
+              desired: >
+                {% if trigger.id == 'set_night_sensitivity' %}{{ night_sensitivity }}{% else %}{{ day_sensitivity }}{% endif %}
+          - repeat:
+              for_each: "{{ detectors }}"
+              sequence:
+                - variables:
+                    dev_name: "{{ device_attr(repeat.item, 'name') }}"
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ dev_name }}/set"
+                    payload: >
+                      {{ {'sensitivity': desired} | tojson }}
+                    qos: 1
+          - service: "{{ notify_service }}"
+            data:
+              title: "ℹ️ Smoke sensitivity updated"
+              message: "Set to '{{ desired }}' for all selected detectors."
+    default: []
