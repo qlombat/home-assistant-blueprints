@@ -15,9 +15,16 @@ blueprint:
           multiple: true
 
     # --- Sun-based triggers ---
-    use_sun_triggers:
-      name: Enable sun-based triggers
-      description: Automatically open at sunrise and close at sunset
+    use_sunrise_trigger:
+      name: Open at sunrise
+      description: Automatically open blinds at sunrise
+      default: true
+      selector:
+        boolean: {}
+
+    use_sunset_trigger:
+      name: Close at sunset
+      description: Automatically close blinds at sunset
       default: true
       selector:
         boolean: {}
@@ -105,7 +112,7 @@ actions:
                 conditions:
                   - condition: trigger
                     id: "sunrise"
-                  - "{{ use_sun_triggers }}"
+                  - "{{ use_sunrise_trigger }}"
         sequence:
           - action: cover.open_cover
             target:
@@ -121,14 +128,16 @@ actions:
                 conditions:
                   - condition: trigger
                     id: "sunset"
-                  - "{{ use_sun_triggers }}"
+                  - "{{ use_sunset_trigger }}"
         sequence:
           - action: cover.close_cover
             target:
               entity_id: !input covers
 
 variables:
-  use_sun_triggers: !input use_sun_triggers
+  use_sunrise_trigger: !input use_sunrise_trigger
+  use_sunset_trigger: !input use_sunset_trigger
 
 mode: single
+
 
