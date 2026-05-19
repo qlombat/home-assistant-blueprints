@@ -4,11 +4,11 @@ A collection of Home Assistant automation blueprints.
 
 ## Blueprints
 
-### Automatic Blinds Management (Sun + MQTT Remote)
+### Cover: Open & Close on Sun Schedule + MQTT Remote
 
-**File:** [`auto_blinds_sun_mqtt.yaml`](auto_blinds_sun_mqtt.yaml)
+**File:** [`cover_open_close_schedule.yaml`](cover_open_close_schedule.yaml)
 
-Opens blinds at sunrise and closes them at sunset, with support for an MQTT remote control device. Sun-based triggers can be enabled/disabled. The remote action subtypes are customizable (defaults: `brightness_move_up` / `brightness_move_down`).
+Automatically open covers at sunrise and/or close them at sunset (each independently toggleable), plus an MQTT remote control with customizable action subtypes.
 
 **Inputs:**
 - Covers to control (multi-select)
