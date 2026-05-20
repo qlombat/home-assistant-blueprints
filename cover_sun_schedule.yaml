@@ -1,0 +1,90 @@
+blueprint:
+  name: Blinds Sun Schedule
+  description: >
+    Opens blinds at sunrise and closes them at sunset with configurable offsets.
+    Use one instance per group of covers.
+  domain: automation
+  input:
+    covers:
+      name: Covers / Blinds
+      description: Select the cover entities to control
+      selector:
+        entity:
+          domain: cover
+          multiple: true
+
+    use_sunrise_trigger:
+      name: Open at sunrise
+      description: Automatically open blinds at sunrise
+      default: true
+      selector:
+        boolean: {}
+
+    use_sunset_trigger:
+      name: Close at sunset
+      description: Automatically close blinds at sunset
+      default: true
+      selector:
+        boolean: {}
+
+    sunrise_offset:
+      name: Sunrise offset
+      description: Offset from sunrise in seconds (negative = before, positive = after)
+      default: 0
+      selector:
+        number:
+          min: -7200
+          max: 7200
+          unit_of_measurement: seconds
+          step: 60
+
+    sunset_offset:
+      name: Sunset offset
+      description: Offset from sunset in seconds (negative = before, positive = after)
+      default: 0
+      selector:
+        number:
+          min: -7200
+          max: 7200
+          unit_of_measurement: seconds
+          step: 60
+
+triggers:
+  - id: "sunrise"
+    trigger: sun
+    event: sunrise
+    offset: !input sunrise_offset
+
+  - id: "sunset"
+    trigger: sun
+    event: sunset
+    offset: !input sunset_offset
+
+conditions: []
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: "sunrise"
+          - "{{ use_sunrise_trigger }}"
+        sequence:
+          - action: cover.open_cover
+            target:
+              entity_id: !input covers
+
+      - conditions:
+          - condition: trigger
+            id: "sunset"
+          - "{{ use_sunset_trigger }}"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: !input covers
+
+variables:
+  use_sunrise_trigger: !input use_sunrise_trigger
+  use_sunset_trigger: !input use_sunset_trigger
+
+mode: single
+

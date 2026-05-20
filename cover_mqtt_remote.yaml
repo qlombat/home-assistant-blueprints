@@ -1,0 +1,73 @@
+blueprint:
+  name: Blinds MQTT Remote Control
+  description: >
+    Controls blinds via an MQTT remote device.
+    Create one instance per remote that controls the same covers.
+  domain: automation
+  input:
+    covers:
+      name: Covers / Blinds
+      description: Select the cover entities to control
+      selector:
+        entity:
+          domain: cover
+          multiple: true
+
+    mqtt_remote_device:
+      name: MQTT remote device
+      description: The MQTT device used as a remote control
+      selector:
+        device:
+          integration: mqtt
+
+    open_subtype:
+      name: Open action subtype
+      description: The action subtype that triggers opening the blinds
+      default: "brightness_move_up"
+      selector:
+        text: {}
+
+    close_subtype:
+      name: Close action subtype
+      description: The action subtype that triggers closing the blinds
+      default: "brightness_move_down"
+      selector:
+        text: {}
+
+triggers:
+  - id: "mqtt_open"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device
+    type: action
+    subtype: !input open_subtype
+
+  - id: "mqtt_close"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device
+    type: action
+    subtype: !input close_subtype
+
+conditions: []
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: "mqtt_open"
+        sequence:
+          - action: cover.open_cover
+            target:
+              entity_id: !input covers
+
+      - conditions:
+          - condition: trigger
+            id: "mqtt_close"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: !input covers
+
+mode: single
+
