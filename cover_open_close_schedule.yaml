@@ -2,7 +2,7 @@ blueprint:
   name: Automatic Blinds Management (Sun + MQTT Remote)
   description: >
     Opens blinds at sunrise and closes them at sunset (optional), with support
-    for an MQTT remote control device using customizable action subtypes
+    for up to 3 MQTT remote control devices using customizable action subtypes
     (defaults to brightness_move_up / brightness_move_down).
   domain: automation
   input:
@@ -51,24 +51,70 @@ blueprint:
           unit_of_measurement: seconds
           step: 60
 
-    # --- MQTT remote device ---
-    mqtt_remote_device:
-      name: MQTT remote device
-      description: The MQTT device used as a remote control (e.g. Aqara rotary knob)
+    # --- MQTT remote device 1 ---
+    mqtt_remote_device_1:
+      name: MQTT remote device 1
+      description: The first MQTT device used as a remote control
       selector:
         device:
           integration: mqtt
 
-    open_subtype:
-      name: Open action subtype
-      description: The action subtype that triggers opening the blinds
+    open_subtype_1:
+      name: Open action subtype (remote 1)
+      description: The action subtype that triggers opening the blinds (remote 1)
       default: "brightness_move_up"
       selector:
         text: {}
 
-    close_subtype:
-      name: Close action subtype
-      description: The action subtype that triggers closing the blinds
+    close_subtype_1:
+      name: Close action subtype (remote 1)
+      description: The action subtype that triggers closing the blinds (remote 1)
+      default: "brightness_move_down"
+      selector:
+        text: {}
+
+    # --- MQTT remote device 2 (optional) ---
+    mqtt_remote_device_2:
+      name: MQTT remote device 2 (optional)
+      description: A second MQTT device used as a remote control (leave empty if not needed)
+      default: ""
+      selector:
+        device:
+          integration: mqtt
+
+    open_subtype_2:
+      name: Open action subtype (remote 2)
+      description: The action subtype that triggers opening the blinds (remote 2)
+      default: "brightness_move_up"
+      selector:
+        text: {}
+
+    close_subtype_2:
+      name: Close action subtype (remote 2)
+      description: The action subtype that triggers closing the blinds (remote 2)
+      default: "brightness_move_down"
+      selector:
+        text: {}
+
+    # --- MQTT remote device 3 (optional) ---
+    mqtt_remote_device_3:
+      name: MQTT remote device 3 (optional)
+      description: A third MQTT device used as a remote control (leave empty if not needed)
+      default: ""
+      selector:
+        device:
+          integration: mqtt
+
+    open_subtype_3:
+      name: Open action subtype (remote 3)
+      description: The action subtype that triggers opening the blinds (remote 3)
+      default: "brightness_move_up"
+      selector:
+        text: {}
+
+    close_subtype_3:
+      name: Close action subtype (remote 3)
+      description: The action subtype that triggers closing the blinds (remote 3)
       default: "brightness_move_down"
       selector:
         text: {}
@@ -84,19 +130,47 @@ triggers:
     event: sunset
     offset: !input sunset_offset
 
-  - id: "mqtt_open"
+  - id: "mqtt_open_1"
     trigger: device
     domain: mqtt
-    device_id: !input mqtt_remote_device
+    device_id: !input mqtt_remote_device_1
     type: action
-    subtype: !input open_subtype
+    subtype: !input open_subtype_1
 
-  - id: "mqtt_close"
+  - id: "mqtt_close_1"
     trigger: device
     domain: mqtt
-    device_id: !input mqtt_remote_device
+    device_id: !input mqtt_remote_device_1
     type: action
-    subtype: !input close_subtype
+    subtype: !input close_subtype_1
+
+  - id: "mqtt_open_2"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device_2
+    type: action
+    subtype: !input open_subtype_2
+
+  - id: "mqtt_close_2"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device_2
+    type: action
+    subtype: !input close_subtype_2
+
+  - id: "mqtt_open_3"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device_3
+    type: action
+    subtype: !input open_subtype_3
+
+  - id: "mqtt_close_3"
+    trigger: device
+    domain: mqtt
+    device_id: !input mqtt_remote_device_3
+    type: action
+    subtype: !input close_subtype_3
 
 conditions: []
 
@@ -107,7 +181,11 @@ actions:
           - condition: or
             conditions:
               - condition: trigger
-                id: "mqtt_open"
+                id: "mqtt_open_1"
+              - condition: trigger
+                id: "mqtt_open_2"
+              - condition: trigger
+                id: "mqtt_open_3"
               - condition: and
                 conditions:
                   - condition: trigger
@@ -123,7 +201,11 @@ actions:
           - condition: or
             conditions:
               - condition: trigger
-                id: "mqtt_close"
+                id: "mqtt_close_1"
+              - condition: trigger
+                id: "mqtt_close_2"
+              - condition: trigger
+                id: "mqtt_close_3"
               - condition: and
                 conditions:
                   - condition: trigger
@@ -139,5 +221,3 @@ variables:
   use_sunset_trigger: !input use_sunset_trigger
 
 mode: single
-
-

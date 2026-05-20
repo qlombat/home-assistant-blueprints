@@ -1,0 +1,1425 @@
+- id: '1693496136136'
+  alias: Turn On Lights Bureau
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 5945ed281ec9e6ab52b62d7e9a36e9a0
+    type: action
+    subtype: 'on'
+    discovery_id: 0x847127fffefed75f action_on
+    trigger: device
+  conditions: []
+  actions:
+  - action: light.turn_on
+    metadata: {}
+    data:
+      brightness_step_pct: 100
+      kelvin: 6500
+    target:
+      area_id: bureau
+  - type: turn_on
+    device_id: ed54819c5b407fe5226371145c55767a
+    entity_id: abd99b4126db81b6656594874a8cc4b1
+    domain: switch
+  mode: single
+- id: '1693496186672'
+  alias: Turn Off Lights Bureau
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 5945ed281ec9e6ab52b62d7e9a36e9a0
+    type: action
+    subtype: 'off'
+    discovery_id: 0x847127fffefed75f action_off
+    trigger: device
+  conditions: []
+  actions:
+  - action: light.turn_off
+    target:
+      area_id: bureau
+    data: {}
+  - type: turn_off
+    device_id: ed54819c5b407fe5226371145c55767a
+    entity_id: abd99b4126db81b6656594874a8cc4b1
+    domain: switch
+  mode: single
+- id: '1693508919516'
+  alias: Cinéma
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 4b83fbed977d9baa43f6d4d6485817d4
+    type: action
+    subtype: 'on'
+    discovery_id: 0x003c84fffe23d880 action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.cinema
+    metadata: {}
+  - service: scene.turn_on
+    target:
+      entity_id: scene.salle_a_manger_cinema
+    metadata: {}
+  - service: scene.turn_on
+    target:
+      entity_id: scene.cuisine_cinema
+    metadata: {}
+  mode: single
+- id: '1693510120597'
+  alias: Turn On Lights Salon
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 90e686683437219c0262a321a189b66b
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe55508b action_on
+    trigger: device
+  - domain: mqtt
+    device_id: 4b83fbed977d9baa43f6d4d6485817d4
+    type: action
+    subtype: brightness_move_up
+    discovery_id: 0x003c84fffe23d880 action_brightness_move_up
+    trigger: device
+  - domain: mqtt
+    device_id: 4513b8c1a8ea27d512f660b343d88326
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e37f0 action_on
+    trigger: device
+  conditions: []
+  actions:
+  - metadata: {}
+    action: scene.turn_on
+    data: {}
+    target:
+      entity_id: scene.reset_lights
+  mode: single
+- id: '1693510163726'
+  alias: Turn Off Lights Salon
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 90e686683437219c0262a321a189b66b
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe55508b action_off
+    trigger: device
+  - domain: mqtt
+    device_id: 4513b8c1a8ea27d512f660b343d88326
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e37f0 action_off
+    trigger: device
+  conditions: []
+  actions:
+  - metadata: {}
+    action: scene.turn_on
+    data: {}
+    target:
+      entity_id: scene.lights_salon_off
+  mode: single
+- id: '1693511543124'
+  alias: Turn On Lights Salle à Manger
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: ab5c2e9c417b2b5eef3d6cd86bcd0017
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e5ec1 action_on
+  - platform: device
+    domain: mqtt
+    device_id: 87f86da9ce452d2fc14f250bb0a5c6c9
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e37c2 action_on
+  - platform: device
+    domain: mqtt
+    device_id: 1e47c33b9afb7939572dd0631dab0d75
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe7f2762 action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_salle_a_manger_on
+    metadata: {}
+  mode: single
+- id: '1693511597036'
+  alias: Turn Off Lights Salle à Manger
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: ab5c2e9c417b2b5eef3d6cd86bcd0017
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e5ec1 action_off
+  - platform: device
+    domain: mqtt
+    device_id: 87f86da9ce452d2fc14f250bb0a5c6c9
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e37c2 action_off
+  - platform: device
+    domain: mqtt
+    device_id: 1e47c33b9afb7939572dd0631dab0d75
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe7f2762 action_off
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_salle_a_manger_off
+    metadata: {}
+  mode: single
+- id: '1693513826486'
+  alias: Turn On Lights Cuisine
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 7f2d84eadfda329dab385ab26de5f7a1
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e5ebb action_on
+  - platform: device
+    domain: mqtt
+    device_id: f97e20ab5c0650a349c3272c89109bba
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe555087 action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_cuisine_on
+    metadata: {}
+  mode: single
+- id: '1693513880411'
+  alias: Turn Off Lights Cuisine
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 7f2d84eadfda329dab385ab26de5f7a1
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e5ebb action_off
+  - platform: device
+    domain: mqtt
+    device_id: f97e20ab5c0650a349c3272c89109bba
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe555087 action_off
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_cuisine_off
+    metadata: {}
+  mode: single
+- id: '1693514489606'
+  alias: Motion Detected Buanderie (BUA.MOV.0)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0x70ac08fffe9ca320_occupancy
+      light_target:
+        area_id: buanderie
+- id: '1693514535381'
+  alias: Motion Detected Buanderie (BUA.MOV.1)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0x943469fffe7b2db5_occupancy
+      light_target:
+        area_id: buanderie
+- id: '1693518095784'
+  alias: Motion Detected Toilette (TOI.MOV.0)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0x8c6fb9fffe1c355a_occupancy
+      light_target:
+        area_id: toilette
+- id: '1693521099646'
+  alias: Turn On Lights Chambre
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 64ab0368be0dd8e3ccb76a77abe06aac
+    type: action
+    subtype: 'on'
+    discovery_id: 0x847127fffedf2dac action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_on
+    metadata: {}
+  mode: single
+- id: '1693521842680'
+  alias: Turn Off Lights Chambre
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 64ab0368be0dd8e3ccb76a77abe06aac
+    type: action
+    subtype: 'off'
+    discovery_id: 0x847127fffedf2dac action_off
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_off
+    metadata: {}
+  mode: single
+- id: '1693522431337'
+  alias: Turn On Lights Chambre Quentin
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 8388a8dc20e94238763d3bb400b15c27
+    type: action
+    subtype: 'on'
+    discovery_id: 0x70ac08fffe6e023c action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_quentin_on
+    metadata: {}
+  mode: single
+- id: '1693522462952'
+  alias: Turn Off Lights Chambre Quentin
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 8388a8dc20e94238763d3bb400b15c27
+    type: action
+    subtype: 'off'
+    discovery_id: 0x70ac08fffe6e023c action_off
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_quentin_off
+    metadata: {}
+  mode: single
+- id: '1693524027891'
+  alias: Motion Detected Entrée (ENT.MOV.0)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0xd87a3bfffe00e82a_occupancy
+      light_target:
+        entity_id: light.0x8c65a3fffedf0d79
+        device_id: ad25ec5395941bb1da65e050edac4f5e
+      no_motion_wait: 120
+- id: '1693642983573'
+  alias: Turn On Lights Chambre d'amis
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 498aed654c4d9352acf2b001b44dab4f
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3d7e5a action_on
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_d_amis_on
+    metadata: {}
+  mode: single
+- id: '1693643014817'
+  alias: Turn Off Lights Chambre d'amis
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 498aed654c4d9352acf2b001b44dab4f
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3d7e5a action_off
+  condition: []
+  action:
+  - service: scene.turn_on
+    target:
+      entity_id: scene.lights_chambre_d_amis_off
+    metadata: {}
+  mode: single
+- id: '1693648141354'
+  alias: Low battery level detection & notification for all battery sensors
+  description: ''
+  use_blueprint:
+    path: sbyx/low-battery-level-detection-notification-for-all-battery-sensors.yaml
+    input:
+      time: '22:19:00'
+      actions:
+      - service: media_player.volume_set
+        data:
+          volume_level: 0.7
+        target:
+          area_id: cuisine
+      - service: media_player.play_media
+        target:
+          entity_id: media_player.cuisine
+        data:
+          media_content_id: media-source://tts/cloud?message=Bonjour+homy%2C+ceci+est+un+rappel+concernant+le+niveau+de+batterie+de+vos+objets+connect%C3%A9s.+Certains+objets+ont+un+niveau+de+batterie+inf%C3%A9rieur+%C3%A0+20%25%3A+&language=fr-BE&voice=CharlineNeural
+          media_content_type: provider
+        metadata:
+          title: 'Bonjour homy, ceci est un rappel concernant le niveau de batterie
+            de vos objets connectés. Certains objets ont un niveau de batterie inférieur
+            à 20%: '
+          thumbnail: https://brands.home-assistant.io/_/cloud/logo.png
+          media_class: app
+          children_media_class:
+          navigateIds:
+          - {}
+          - media_content_type: app
+            media_content_id: media-source://tts
+          - media_content_type: provider
+            media_content_id: media-source://tts/cloud?message=Bonjour+homy%2C+ceci+est+un+rappel+concernant+le+niveau+de+batterie+de+vos+objets+connect%C3%A9s.+Certains+objets+ont+un+niveau+de+batterie+inf%C3%A9rieur+%C3%A0+20%25%3A+&language=fr-BE&voice=CharlineNeural
+      exclude:
+        entity_id: []
+        device_id: 0b4fa9e6e29a9fd474490c6edea0f523
+- id: '1693650305315'
+  alias: Turn Off all lights
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: be83d33300db83dd3951957daa5605c8
+    type: action
+    subtype: 'on'
+    discovery_id: 0x84ba20fffec787f2 action_on
+  condition: []
+  action:
+  - data: {}
+    service: light.turn_off
+    target:
+      area_id:
+      - buanderie
+      - bureau
+      - chambre
+      - chambre_d_amis
+      - couloir
+      - cuisine
+      - dressing
+      - entree
+      - grenier
+      - salle_a_manger
+      - salle_de_bain
+      - salon
+      - toilette
+  - delay:
+      hours: 0
+      minutes: 2
+      seconds: 0
+      milliseconds: 0
+  - service: light.turn_off
+    data: {}
+    target:
+      area_id: exterieur
+  mode: single
+- id: '1693650534434'
+  alias: Motion Detected Couloir (CO.MOV.0)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0x8c6fb9fffe26c58a_occupancy
+      light_target:
+        device_id: 629db38554c48f5eacb996abb98eccc4
+      no_motion_wait: 30
+- id: '1693650572748'
+  alias: Motion Detected Couloir (CO.MOV.1)
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light.yaml
+    input:
+      motion_entity: binary_sensor.0x8c6fb9fffe26c739_occupancy
+      light_target:
+        device_id:
+        - 39d33e4e2974085fe8be9afaf83c93d2
+        - e8f5628bc613825c53223dd5a96d12e6
+      no_motion_wait: 60
+- id: '1693663222141'
+  alias: Turn on Lights Salle de bain
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 2f288a920b16eb049bfc6df94404279c
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3d7e60 action_on
+    trigger: device
+  - domain: mqtt
+    device_id: 37bc9967ed8f512d5d17a9e1e4f52eb5
+    type: action
+    subtype: 'on'
+    trigger: device
+  conditions: []
+  actions:
+  - data: {}
+    target:
+      area_id: salle_de_bain
+    action: light.turn_on
+  mode: single
+- id: '1693663301407'
+  alias: Turn Off Lights Salle de bain
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 2f288a920b16eb049bfc6df94404279c
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3d7e60 action_off
+    trigger: device
+  - domain: mqtt
+    device_id: 37bc9967ed8f512d5d17a9e1e4f52eb5
+    type: action
+    subtype: 'off'
+    trigger: device
+  conditions: []
+  actions:
+  - data: {}
+    target:
+      area_id: salle_de_bain
+    action: light.turn_off
+  - data: {}
+    target:
+      area_id: salle_de_bain
+    action: media_player.media_stop
+  mode: single
+- id: '1693664905969'
+  alias: Turn On Lights Couloir
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: da9cb05157eeeb8e2ddf6988db733734
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e37ce action_on
+  - platform: device
+    domain: mqtt
+    device_id: 0647d2c1c900da81645d74efc581896c
+    type: action
+    subtype: 'on'
+    discovery_id: 0x70ac08fffe6eb488 action_on
+  condition: []
+  action:
+  - service: light.turn_on
+    data: {}
+    target:
+      area_id: couloir
+  mode: single
+- id: '1693664942579'
+  alias: Turn Off Lights Couloir
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: da9cb05157eeeb8e2ddf6988db733734
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e37ce action_off
+  - platform: device
+    domain: mqtt
+    device_id: 0647d2c1c900da81645d74efc581896c
+    type: action
+    subtype: 'off'
+    discovery_id: 0x70ac08fffe6eb488 action_off
+  condition: []
+  action:
+  - service: light.turn_off
+    data: {}
+    target:
+      area_id: couloir
+  mode: single
+- id: '1693665070465'
+  alias: Turn On Lights Entrée
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 51a9f4e23ee36bd8d97e5b1ba095efae
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3d7e4b action_on
+  - platform: device
+    domain: mqtt
+    device_id: a6e82edad2b8f37c78344bcd7c8f8c4a
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe7da1c5 action_on
+  condition: []
+  action:
+  - service: light.turn_on
+    data: {}
+    target:
+      area_id: entree
+  mode: single
+- id: '1693665114274'
+  alias: Turn Off Lights Entrée
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 51a9f4e23ee36bd8d97e5b1ba095efae
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3d7e4b action_off
+  - platform: device
+    domain: mqtt
+    device_id: a6e82edad2b8f37c78344bcd7c8f8c4a
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe7da1c5 action_off
+  condition: []
+  action:
+  - service: light.turn_off
+    data: {}
+    target:
+      area_id: entree
+  mode: single
+- id: '1693669627468'
+  alias: Close SAL.STO.0 when TV turned On
+  description: ''
+  triggers:
+  - trigger: state
+    entity_id:
+    - media_player.tv_3
+    from:
+    - 'off'
+    to:
+    - 'on'
+  conditions: []
+  actions:
+  - device_id: 43447f9583de8d7e949899e92ace6000
+    domain: cover
+    entity_id: 19f6f2122f305806c2ade57765123a18
+    type: close
+  mode: single
+- id: '1693688672036'
+  alias: Turn On Lights Grenier
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 9ff6b4fd35211e8b6d057a33e874135e
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3d8b06 action_on
+  condition: []
+  action:
+  - service: light.turn_on
+    data:
+      brightness_pct: 100
+    target:
+      area_id: grenier
+  mode: single
+- id: '1693688703902'
+  alias: Turn Off Lights Grenier
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: 9ff6b4fd35211e8b6d057a33e874135e
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3d8b06 action_off
+  condition: []
+  action:
+  - service: light.turn_off
+    data: {}
+    target:
+      area_id: grenier
+  mode: single
+- id: '1693731775270'
+  alias: Reset volume at 5:00 AM
+  description: ''
+  trigger:
+  - platform: time
+    at: 05:00:00
+  condition: []
+  action:
+  - service: media_player.volume_set
+    data:
+      volume_level: 0.5
+    target:
+      device_id:
+      - f287d54bffe3178f07a41417e45fe6fe
+      - 5b9eabbbc6a8d07012afeefe1b1430a4
+      - 84098f0bcc3fc460cb920b2a2cb1599f
+      - cbb11e3aefa9ef6a4c70bb974570ace5
+      - b25b5aa1156ee2675a9389c5a0797ee1
+  mode: single
+- id: '1693732883958'
+  alias: Open SAL.STO.0 when TV turned Off
+  description: ''
+  triggers:
+  - trigger: state
+    entity_id:
+    - media_player.tv_3
+    from:
+    - 'on'
+    to:
+    - 'off'
+  conditions:
+  - condition: sun
+    after: sunrise
+    before: sunset
+    enabled: true
+  actions:
+  - device_id: 43447f9583de8d7e949899e92ace6000
+    domain: cover
+    entity_id: 19f6f2122f305806c2ade57765123a18
+    type: open
+  mode: single
+- id: '1693782962774'
+  alias: 'Trash reminder '
+  description: ''
+  trigger:
+  - platform: time
+    at: '22:00:00'
+  condition:
+  - condition: time
+    weekday:
+    - wed
+  action:
+  - service: media_player.play_media
+    target:
+      entity_id: media_player.maison
+    data:
+      media_content_id: media-source://tts/cloud?message=Bonjour+homy%2C+ceci+est+un+rappel+concernant+vos+poubelles.+Elle+seront+collect%C3%A9s+demain.+&language=fr-BE&voice=CharlineNeural
+      media_content_type: provider
+    metadata:
+      title: 'Bonjour homy, ceci est un rappel concernant vos poubelles. Elle seront
+        collectés demain. '
+      thumbnail: https://brands.home-assistant.io/_/cloud/logo.png
+      media_class: app
+      children_media_class:
+      navigateIds:
+      - {}
+      - media_content_type: app
+        media_content_id: media-source://tts
+      - media_content_type: provider
+        media_content_id: media-source://tts/cloud?message=Bonjour+homy%2C+ceci+est+un+rappel+concernant+vos+poubelles.+Elle+seront+collect%C3%A9s+demain.+&language=fr-BE&voice=CharlineNeural
+  mode: single
+- id: '1693820947520'
+  alias: Surchauffe
+  description: ''
+  trigger:
+  - platform: time_pattern
+    minutes: /10
+  condition:
+  - condition: and
+    conditions:
+    - condition: numeric_state
+      entity_id: weather.forecast_home
+      attribute: temperature
+      above: 20
+    - condition: numeric_state
+      entity_id: sun.sun
+      attribute: azimuth
+      above: 120
+      below: 250
+    - condition: sun
+      after: sunrise
+      before: sunset
+    - condition: state
+      entity_id: input_boolean.overheat
+      state: 'on'
+  action:
+  - service: cover.close_cover
+    data: {}
+    target:
+      area_id:
+      - cuisine
+      - salon
+  mode: single
+- id: '1693858486324'
+  alias: Turn Off Lights Grenier After 1h
+  description: ''
+  trigger:
+  - platform: device
+    type: turned_on
+    device_id: 5533dfe1b89f8e4e6c97234724e40f0d
+    entity_id: 97410be5532db2994d0fa36718ade3bc
+    domain: light
+  condition: []
+  action:
+  - delay:
+      hours: 1
+      minutes: 0
+      seconds: 0
+      milliseconds: 0
+  - service: light.turn_off
+    data: {}
+    target:
+      area_id: grenier
+  mode: single
+- id: '1696759842256'
+  alias: 'Turn On Lights Extérieur '
+  description: ''
+  triggers:
+  - event: sunset
+    trigger: sun
+  - domain: mqtt
+    device_id: e997e888dbb5a737b1208dcf93c94a3f
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe3e37ca action_on
+    trigger: device
+  conditions: []
+  actions:
+  - action: light.turn_on
+    metadata: {}
+    target:
+      area_id: exterieur
+    data:
+      color_temp_kelvin: 2883
+      brightness_pct: 100
+  - action: switch.turn_on
+    metadata: {}
+    data: {}
+    target:
+      device_id:
+      - 920525879a55cd0050b654d11ffef390
+      - 32bb255fddd96679eb7fffae37b2d3e3
+      entity_id: switch.abr_plu_ambiant
+  mode: single
+- id: '1696760022646'
+  alias: 'Turn Off Lights Extérieur '
+  description: ''
+  triggers:
+  - at: 02:00:00
+    trigger: time
+  - domain: mqtt
+    device_id: e997e888dbb5a737b1208dcf93c94a3f
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe3e37ca action_off
+    trigger: device
+  conditions: []
+  actions:
+  - data: {}
+    target:
+      area_id: exterieur
+    action: light.turn_off
+  - action: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      device_id:
+      - 920525879a55cd0050b654d11ffef390
+      - 32bb255fddd96679eb7fffae37b2d3e3
+      entity_id: switch.abr_plu_ambiant
+  mode: single
+- id: '1700438434769'
+  alias: 'Cinema étage '
+  description: ''
+  triggers:
+  - type: turned_on
+    device_id: 914191dae48741d4dc03ae89eed3c47a
+    entity_id: ed894d7e0054dbc9832dcdc01388090b
+    domain: remote
+    trigger: device
+  conditions: []
+  actions:
+  - data: {}
+    target:
+      area_id: chambre
+    action: light.turn_off
+  - data: {}
+    target:
+      area_id: chambre
+    action: cover.close_cover
+  mode: single
+- id: '1700592556421'
+  alias: 'Turn Off Lights Terrasse '
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: f2da48c37973189e6c1a3c3f2006a4da
+    type: action
+    subtype: 'off'
+    discovery_id: 0x3425b4fffe555089 action_off
+  condition: []
+  action:
+  - service: light.turn_off
+    data: {}
+    target:
+      device_id: e39a622bcd010cc5b7ad2273c99692d1
+  mode: single
+- id: '1700592625104'
+  alias: Turn On Lights Terrasse
+  description: ''
+  trigger:
+  - platform: device
+    domain: mqtt
+    device_id: f2da48c37973189e6c1a3c3f2006a4da
+    type: action
+    subtype: 'on'
+    discovery_id: 0x3425b4fffe555089 action_on
+  condition: []
+  action:
+  - service: light.turn_on
+    data: {}
+    target:
+      device_id: e39a622bcd010cc5b7ad2273c99692d1
+  mode: single
+- id: '1711829318776'
+  alias: Chambre HOT
+  description: ''
+  trigger: []
+  condition: []
+  action:
+  - service: light.turn_on
+    metadata: {}
+    data:
+      transition: 5
+      rgb_color:
+      - 255
+      - 38
+      - 0
+    target:
+      entity_id: light.cp_li_amb_x
+  - delay:
+      hours: 0
+      minutes: 0
+      seconds: 10
+      milliseconds: 0
+  - repeat:
+      count: 20
+      sequence:
+      - service: light.turn_on
+        metadata: {}
+        data:
+          rgb_color:
+          - 255
+          - 38
+          - 0
+          transition: 15
+          brightness_pct: 100
+        target:
+          entity_id: light.cp_li_amb_x
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 15
+          milliseconds: 0
+      - service: light.turn_on
+        metadata: {}
+        data:
+          rgb_color:
+          - 255
+          - 64
+          - 255
+          transition: 15
+          brightness_pct: 100
+        target:
+          entity_id: light.cp_li_amb_x
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 15
+          milliseconds: 0
+  mode: single
+- id: '1713535451356'
+  alias: 'Allumer bulleur '
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunset
+    offset: 0
+  condition: []
+  action:
+  - service: switch.turn_on
+    target:
+      device_id:
+      - 80206968895e689dd5298ae4c169f5a8
+    data: {}
+  mode: single
+- id: '1713535504493'
+  alias: 'Éteindre bulleur '
+  description: ''
+  triggers:
+  - trigger: sun
+    event: sunrise
+    offset: 0
+  conditions: []
+  actions:
+  - target:
+      device_id:
+      - 80206968895e689dd5298ae4c169f5a8
+    data: {}
+    action: switch.turn_off
+  mode: single
+- id: '1720624269908'
+  alias: Turn On Lights Dressing
+  description: ''
+  trigger:
+  - type: opened
+    platform: device
+    device_id: 443c1bc7181a4c2b2e4c8877c9406b61
+    entity_id: 8d13ef74753f893cf3a59bce75e02a16
+    domain: binary_sensor
+  condition: []
+  action:
+  - service: light.turn_on
+    metadata: {}
+    data: {}
+    target:
+      area_id: dressing
+  mode: single
+- id: '1720624321096'
+  alias: Turn Off Lights Dressing
+  description: ''
+  trigger:
+  - type: not_opened
+    platform: device
+    device_id: 443c1bc7181a4c2b2e4c8877c9406b61
+    entity_id: 8d13ef74753f893cf3a59bce75e02a16
+    domain: binary_sensor
+  condition: []
+  action:
+  - service: light.turn_off
+    target:
+      area_id:
+      - dressing
+    data: {}
+  mode: single
+- id: '1720627775505'
+  alias: Prevent BU.STO.0 from closing if the window is open
+  description: ''
+  use_blueprint:
+    path: qlombat/prevent_blind_closing_when_window_open.yaml
+    input:
+      window_sensor: binary_sensor.0x048727fffeb8407f_contact
+      blind_cover: cover.0x804b50fffed0ac5a
+- id: '1720641198741'
+  alias: Prevent CP.STO.1 from closing if the window is open
+  description: ''
+  use_blueprint:
+    path: qlombat/prevent_blind_closing_when_window_open.yaml
+    input:
+      window_sensor: binary_sensor.cp_ocs_1_contact
+      blind_cover: cover.cp_sto_1
+- id: '1720641227888'
+  alias: Prevent CP.STO.0 from closing if the window is open
+  description: ''
+  use_blueprint:
+    path: qlombat/prevent_blind_closing_when_window_open.yaml
+    input:
+      window_sensor: binary_sensor.0x048727fffea417fb_contact
+      blind_cover: cover.cp_st0_0
+- id: '1724619497512'
+  alias: 'Turn on ENT.LI.2 on sunset '
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunset
+    offset: 0
+  condition: []
+  action:
+  - action: light.turn_on
+    metadata: {}
+    data: {}
+    target:
+      device_id: b38b4bf025cd0c663a1e2ddf6a12e1af
+  mode: single
+- id: '1724619579166'
+  alias: Turn Off ENT.LI.2 on sunrise
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunrise
+    offset: 0
+  condition: []
+  action:
+  - action: light.turn_off
+    target:
+      device_id: b38b4bf025cd0c663a1e2ddf6a12e1af
+    data: {}
+  mode: single
+- id: '1730155786897'
+  alias: Machine à laver notifications
+  description: ''
+  use_blueprint:
+    path: Blackshome/appliance-notifications.yaml
+    input:
+      power_sensor: sensor.0x08ddebfffed77b60_power
+      start_appliance_power: 5
+      end_time_delay: 2
+      start_time_delay: 0.5
+      include_end_notify: enable_end_notify_options
+      end_notify_device:
+      - 0b4fa9e6e29a9fd474490c6edea0f523
+      - 3c1003acfcd2e479fdd21d273002c112
+      include_power_tracking: disable_power_tracking
+      include_duration_tracking: enable_duration_tracking
+      end_message_title: Machine à laver
+      end_message: Youhou ! La machine à laver est terminée, vas ranger ton linge
+        !
+      end_message_duration_tracking: Durée
+      end_notify_interruption_level: active
+      end_reminder_notification: disable_reminder_notification
+- id: '1731618028840'
+  alias: Sèche-linge notifications
+  description: ''
+  use_blueprint:
+    path: Blackshome/appliance-notifications.yaml
+    input:
+      power_sensor: sensor.0x08ddebfffed7a30a_power
+      start_appliance_power: 5
+      end_time_delay: 2
+      start_time_delay: 0.5
+      include_end_notify: enable_end_notify_options
+      end_notify_device:
+      - 0b4fa9e6e29a9fd474490c6edea0f523
+      - 3c1003acfcd2e479fdd21d273002c112
+      include_power_tracking: disable_power_tracking
+      include_duration_tracking: enable_duration_tracking
+      end_message_title: Sèche Linges
+      end_message: Coucou, le sèche-linge est fini !
+      end_message_duration_tracking: Durée
+- id: '1731618523949'
+  alias: Lave vaisselle notifications
+  description: ''
+  use_blueprint:
+    path: Blackshome/appliance-notifications.yaml
+    input:
+      power_sensor: sensor.0x08ddebfffed784bf_power
+      start_appliance_power: 5
+      end_time_delay: 2
+      start_time_delay: 0.5
+      include_end_notify: enable_end_notify_options
+      end_notify_device:
+      - 0b4fa9e6e29a9fd474490c6edea0f523
+      - 3c1003acfcd2e479fdd21d273002c112
+      include_power_tracking: disable_power_tracking
+      include_duration_tracking: enable_duration_tracking
+      end_message_title: 'Lave vaisselle '
+      end_message: Range ta vaisselle, elle est propre !
+      end_message_duration_tracking: Durée
+- id: '1737907829463'
+  alias: 'Alert jacuzzi éteint '
+  description: ''
+  triggers:
+  - trigger: time
+    at: '20:00:00'
+  conditions:
+  - condition: numeric_state
+    entity_id: sensor.0xf0d1b8be240b0110_power
+    above: 0
+    below: 10
+  actions:
+  - action: tts.cloud_say
+    metadata: {}
+    data:
+      cache: false
+      entity_id: media_player.cuisine
+      message: Le jacuzzi est éteint. Vous devriez le réactiver
+  mode: single
+- id: '1738940636169'
+  alias: Bureau Alert
+  description: ''
+  triggers: []
+  conditions: []
+  actions:
+  - action: media_player.volume_set
+    metadata: {}
+    data:
+      volume_level: 1
+    target:
+      device_id: f287d54bffe3178f07a41417e45fe6fe
+  - action: light.turn_on
+    metadata: {}
+    data:
+      kelvin: 2000
+      brightness_step_pct: 100
+    target:
+      device_id: 5c6837fdaf5f68f41fcd2a772301f93b
+  - action: media_player.play_media
+    target:
+      entity_id: media_player.bureau
+    data:
+      media_content_id: media-source://tts/cloud?message=Sale+fils+de+putes+de+sa+m%C3%A8re%2C+quelqu%27un+a+cr%C3%A9%C3%A9+un+bug.+Que+cette+personne+soit+pendue.+&language=fr-BE&voice=GerardNeural
+      media_content_type: provider
+    metadata:
+      title: 'Sale fils de putes de sa mère, quelqu''un a créé un bug. Que cette personne
+        soit pendue. '
+      thumbnail: https://brands.home-assistant.io/_/cloud/logo.png
+      media_class: app
+      children_media_class:
+      navigateIds:
+      - {}
+      - media_content_type: app
+        media_content_id: media-source://tts
+      - media_content_type: provider
+        media_content_id: media-source://tts/cloud?message=Sale+fils+de+putes+de+sa+m%C3%A8re%2C+quelqu%27un+a+cr%C3%A9%C3%A9+un+bug.+Que+cette+personne+soit+pendue.+&language=fr-BE&voice=GerardNeural
+  - repeat:
+      count: 5
+      sequence:
+      - action: light.turn_on
+        metadata: {}
+        data:
+          kelvin: 2000
+          brightness_step_pct: 100
+        target:
+          device_id: 5c6837fdaf5f68f41fcd2a772301f93b
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 1
+      - action: light.turn_on
+        metadata: {}
+        data:
+          kelvin: 6500
+          brightness_step_pct: 100
+        target:
+          device_id: 5c6837fdaf5f68f41fcd2a772301f93b
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 1
+  mode: single
+- id: '1742977353216'
+  alias: Switch ON/OFF Toilette
+  description: ''
+  triggers:
+  - domain: mqtt
+    device_id: 59fa23f9fe2fbb134b327a4c91962af8
+    type: action
+    subtype: 'on'
+    trigger: device
+  - domain: mqtt
+    device_id: ed373bcc2c60c37fd80487dd8cf0080e
+    type: action
+    subtype: 'on'
+    trigger: device
+  conditions: []
+  actions:
+  - type: toggle
+    device_id: 8b56d077a682b6f30c2b4858c14f0b76
+    entity_id: 9d56d6b40564358e3c0f9ba9efe25bd8
+    domain: light
+  mode: single
+- id: '1742981439871'
+  alias: 'Poubelle: Notification Cartons'
+  description: ''
+  triggers:
+  - trigger: calendar
+    entity_id: calendar.cartons
+    event: start
+    offset: '-5:0:0'
+  conditions: []
+  actions:
+  - device_id: 3c1003acfcd2e479fdd21d273002c112
+    domain: mobile_app
+    type: notify
+    title: Collecte des cartons
+    message: "Pense à sortir les cartons pour la collecte de demain matin \U0001F4E6"
+  - device_id: 0b4fa9e6e29a9fd474490c6edea0f523
+    domain: mobile_app
+    type: notify
+    message: "Pense à sortir les cartons pour la collecte de demain matin \U0001F4E6"
+    title: Collecte des cartons
+  mode: single
+- id: '1742985928179'
+  alias: 'Poubelle: Notification déchets ménagers'
+  description: ''
+  triggers:
+  - trigger: calendar
+    entity_id: calendar.ordure_menagere
+    event: start
+    offset: '-5:0:0'
+  conditions: []
+  actions:
+  - device_id: 3c1003acfcd2e479fdd21d273002c112
+    domain: mobile_app
+    type: notify
+    title: Collecte des déchets ménagers
+    message: C’est le jour des poubelles ! Sors les sacs noirs ce soir.
+  - device_id: 0b4fa9e6e29a9fd474490c6edea0f523
+    domain: mobile_app
+    type: notify
+    message: C’est le jour des poubelles ! Sors les sacs noirs ce soir.
+    title: Collecte des déchets ménagers
+  mode: single
+- id: '1742985995064'
+  alias: 'Poubelle: Notification PMC'
+  description: ''
+  triggers:
+  - trigger: calendar
+    entity_id: calendar.pmc
+    event: start
+    offset: '-5:0:0'
+  conditions: []
+  actions:
+  - device_id: 3c1003acfcd2e479fdd21d273002c112
+    domain: mobile_app
+    type: notify
+    title: Collecte PMC
+    message: N'oublie pas de sortir les PMC pour demain matin (bouteilles, canettes,
+      etc.).
+  - device_id: 0b4fa9e6e29a9fd474490c6edea0f523
+    domain: mobile_app
+    type: notify
+    message: N'oublie pas de sortir les PMC pour demain matin (bouteilles, canettes,
+      etc.).
+    title: Collecte PMC
+  mode: single
+- id: '1750185023295'
+  alias: Filtration piscine - 2h ON / 1h OFF
+  description: Lance la pompe en boucle 2h ON / 1h OFF
+  triggers:
+  - at: 08:00:00
+    trigger: time
+  conditions: []
+  actions:
+  - repeat:
+      while:
+      - condition: time
+        after: 06:00:00
+        before: 00:00:00
+      sequence:
+      - action: switch.turn_on
+        data: {}
+        target:
+          device_id: 8a5a7858d23ba47d55e726997f1b92d9
+      - delay: 02:00:00
+      - action: switch.turn_off
+        data: {}
+        target:
+          device_id: 8a5a7858d23ba47d55e726997f1b92d9
+      - delay: 01:00:00
+  - action: switch.turn_off
+    data: {}
+    target:
+      device_id: 8a5a7858d23ba47d55e726997f1b92d9
+  mode: single
+- id: '1764839569369'
+  alias: Notification incendie (fumé detecté)
+  description: ''
+  triggers:
+  - type: smoke
+    device_id: 24fd75993194502ebc6d5920e9d5a936
+    entity_id: ac2685e73d4bac12bae56fae67ba637a
+    domain: binary_sensor
+    trigger: device
+  - type: smoke
+    device_id: 58aa5d7cab77c25346bde3ea0c2a3f9d
+    entity_id: 3cefae325a7d92904949b78be630b482
+    domain: binary_sensor
+    trigger: device
+  conditions: []
+  actions:
+  - parallel:
+    - action: notify.mobile_app_iphone_de_quentin
+      metadata: {}
+      data:
+        message: De la fumée a été détectée dans la maison. Vérifiez immédiatement
+          la situation et assurez la sécurité des occupants.
+        title: "\U0001F525 Alerte fumée détectée !"
+        data:
+          push:
+            interruption-level: critical
+    - action: notify.mobile_app_iphone_de_agnes
+      metadata: {}
+      data:
+        title: "\U0001F525 Alerte fumée détectée !"
+        message: De la fumée a été détectée dans la maison. Vérifiez immédiatement
+          la situation et assurez la sécurité des occupants.
+        data:
+          push:
+            interruption-level: critical
+  mode: single
+- id: '1779229938573'
+  alias: Salon - Blinds Management (SAM.OF.4)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.sal_sto_x
+      use_sunrise_trigger: true
+      mqtt_remote_device: 90e686683437219c0262a321a189b66b
+- id: '1779230123246'
+  alias: Salon - Blinds management (CUI.OF.2)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.sal_sto_x
+      use_sunrise_trigger: true
+      mqtt_remote_device: 4513b8c1a8ea27d512f660b343d88326
+- id: '1779230258389'
+  alias: Cuisine - Blinds management (CUI.OF.0)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.cui_sto_x
+      mqtt_remote_device: f97e20ab5c0650a349c3272c89109bba
+- id: '1779230302756'
+  alias: Cuisine - Blinds management (SAM.OF.3)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.cui_sto_x
+      mqtt_remote_device: 7f2d84eadfda329dab385ab26de5f7a1
+- id: '1779230472090'
+  alias: Bureau - Blinds management (BU.OF.0)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.bu_sto_x
+      mqtt_remote_device: 5945ed281ec9e6ab52b62d7e9a36e9a0
+- id: '1779230528792'
+  alias: Chambre d'amis - Blinds management (CA.OF.0)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.ca_sto_x
+      mqtt_remote_device: 498aed654c4d9352acf2b001b44dab4f
+- id: '1779230608859'
+  alias: Chambre principale - Blinds management (CP.OF.0)
+  description: ''
+  use_blueprint:
+    path: qlombat/cover_open_close_schedule.yaml
+    input:
+      covers:
+      - cover.cp_sto_x
+      use_sunrise_trigger: false
+      mqtt_remote_device: 64ab0368be0dd8e3ccb76a77abe06aac
