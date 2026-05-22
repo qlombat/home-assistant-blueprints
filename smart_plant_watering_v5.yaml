@@ -12,7 +12,7 @@ blueprint:
   domain: automation
   input:
     # --- Control entities ---
-    switch_arrosage:
+    watering_switch:
       name: "Watering Switch/Valve"
       description: "The switch entity that controls watering"
       selector:
@@ -20,7 +20,7 @@ blueprint:
           domain: switch
 
     # --- Trigger ---
-    heure_arrosage:
+    watering_time:
       name: "Watering time"
       description: "Trigger time (early morning recommended)"
       default: "06:00:00"
@@ -38,7 +38,7 @@ blueprint:
         entity:
           domain: weather
 
-    capteur_pluie_jour:
+    rain_sensor_today:
       name: "Today's precipitation sensor (optional)"
       description: >
         Cumulative rain sensor for today in mm.
@@ -69,7 +69,7 @@ blueprint:
           max: 45
           unit_of_measurement: "°C"
 
-    seuil_pluie_annulation:
+    rain_cancel_threshold:
       name: "Rain to cancel watering (mm)"
       description: "If rain >= this threshold, watering is cancelled"
       default: 5
@@ -79,7 +79,7 @@ blueprint:
           max: 30
           unit_of_measurement: "mm"
 
-    seuil_pluie_reduction:
+    rain_reduction_threshold:
       name: "Rain to reduce watering (mm)"
       description: "If rain >= this threshold, watering is reduced"
       default: 2
@@ -90,7 +90,7 @@ blueprint:
           step: 0.5
           unit_of_measurement: "mm"
 
-    duree_base_minutes:
+    base_duration_minutes:
       name: "Base duration (minutes)"
       description: "Watering duration for a normal day (60 = daily needs)"
       default: 60
@@ -100,7 +100,7 @@ blueprint:
           max: 120
           unit_of_measurement: "min"
 
-    duree_max_minutes:
+    max_duration_minutes:
       name: "Maximum duration (minutes)"
       description: "Max watering duration even during heatwave"
       default: 120
@@ -110,7 +110,7 @@ blueprint:
           max: 180
           unit_of_measurement: "min"
 
-    duree_min_minutes:
+    min_duration_minutes:
       name: "Minimum duration (minutes)"
       description: "Min watering duration (if not cancelled)"
       default: 15
@@ -120,16 +120,17 @@ blueprint:
           max: 60
           unit_of_measurement: "min"
 
-    compteur_jours_sans_pluie:
+    dry_days_counter:
       name: "Consecutive dry days counter (helper)"
       description: >
         An input_number helper that tracks consecutive days without significant rain.
         Create an input_number helper (0-30) in HA.
+        Example ID: input_number.dry_days_counter
       selector:
         entity:
           domain: input_number
 
-    capteur_volume_eau:
+    water_volume_sensor:
       name: "Water volume sensor (SONOFF SWV)"
       description: >
         The water consumption sensor exposed by your SONOFF SWV valve.
@@ -139,44 +140,47 @@ blueprint:
         entity:
           domain: sensor
 
-    compteur_litres_cumules:
+    cumulative_liters_counter:
       name: "Cumulative water usage counter (optional)"
       description: >
         An input_number helper to track total liters used over time.
         Create an input_number helper (0-99999) in HA. Leave empty to skip.
+        Example ID: input_number.watering_cumulative_liters
       default: ""
       selector:
         entity:
           domain: input_number
 
-    statut_actuel:
+    current_status:
       name: "Current status display (optional)"
       description: >
         An input_text helper to store current watering status for dashboard display.
         Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
+        Example ID: input_text.watering_current_status
       default: ""
       selector:
         entity:
           domain: input_text
 
-    historique_arrosages:
+    watering_history:
       name: "Watering history (optional)"
       description: >
         An input_text helper to store last 5 watering sessions summary.
         Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
+        Example ID: input_text.watering_history
       default: ""
       selector:
         entity:
           domain: input_text
 
-    activer_notifications:
+    enable_notifications:
       name: "Enable notifications"
       description: "Send a notification with the watering summary"
       default: true
       selector:
         boolean: {}
 
-    service_notification:
+    notification_service:
       name: "Notification service"
       description: "E.g.: notify.mobile_app_my_phone"
       default: "notify.notify"
@@ -188,26 +192,26 @@ max_exceeded: silent
 
 trigger:
   - platform: time
-    at: !input heure_arrosage
+    at: !input watering_time
 
 variables:
   # Inputs
   temp_normale: !input temperature_normale
   temp_canicule: !input temperature_canicule
-  duree_base: !input duree_base_minutes
-  duree_max: !input duree_max_minutes
-  duree_min: !input duree_min_minutes
-  seuil_annulation: !input seuil_pluie_annulation
-  seuil_reduction: !input seuil_pluie_reduction
-  notif_active: !input activer_notifications
-  notif_service: !input service_notification
+  duree_base: !input base_duration_minutes
+  duree_max: !input max_duration_minutes
+  duree_min: !input min_duration_minutes
+  seuil_annulation: !input rain_cancel_threshold
+  seuil_reduction: !input rain_reduction_threshold
+  notif_active: !input enable_notifications
+  notif_service: !input notification_service
   weather_ent: !input weather_entity
-  rain_sensor: !input capteur_pluie_jour
-  trigger_compteur: !input compteur_jours_sans_pluie
-  capteur_volume: !input capteur_volume_eau
-  compteur_litres: !input compteur_litres_cumules
-  statut_helper: !input statut_actuel
-  historique_helper: !input historique_arrosages
+  rain_sensor: !input rain_sensor_today
+  trigger_compteur: !input dry_days_counter
+  capteur_volume: !input water_volume_sensor
+  compteur_litres: !input cumulative_liters_counter
+  statut_helper: !input current_status
+  historique_helper: !input watering_history
 
   # Sensor values from weather entity attributes
   temperature: "{{ state_attr(weather_ent, 'temperature') | float(25) }}"
@@ -318,13 +322,13 @@ action:
         sequence:
           - action: input_number.set_value
             target:
-              entity_id: !input compteur_jours_sans_pluie
+              entity_id: !input dry_days_counter
             data:
               value: 0
     default:
       - action: input_number.increment
         target:
-          entity_id: !input compteur_jours_sans_pluie
+          entity_id: !input dry_days_counter
 
   # --- Watering or cancellation ---
   - choose:
@@ -404,7 +408,7 @@ action:
       # Turn on watering
       - action: switch.turn_on
         target:
-          entity_id: !input switch_arrosage
+          entity_id: !input watering_switch
 
       # Wait for calculated duration
       - delay:
@@ -413,7 +417,7 @@ action:
       # Turn off watering
       - action: switch.turn_off
         target:
-          entity_id: !input switch_arrosage
+          entity_id: !input watering_switch
 
       # Small delay to let sensor update after valve closes
       - delay:

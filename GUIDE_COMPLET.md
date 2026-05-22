@@ -16,15 +16,15 @@ Ce blueprint gère l'arrosage automatique adaptatif avec :
 
 | Nom | ID | Min | Max | Pas | Usage |
 |-----|-----|-----|-----|-----|-------|
-| Arrosage - Jours Sans Pluie | `input_number.jours_sans_pluie` | 0 | 30 | 1 | Compteur de jours secs |
-| Arrosage - Litres Cumulés | `input_number.arrosage_litres_cumules` | 0 | 99999 | 0.1 | Total litres utilisés |
+| Watering - Dry Days Counter | `input_number.dry_days_counter` | 0 | 30 | 1 | Compteur de jours secs |
+| Watering - Cumulative Liters | `input_number.watering_cumulative_liters` | 0 | 99999 | 0.1 | Total litres utilisés |
 
 #### **input_text** (Texte)
 
 | Nom | ID | Longueur max | Usage |
 |-----|-----|--------------|-------|
-| Arrosage - Statut Actuel | `input_text.arrosage_statut_actuel` | 255 | Statut en temps réel |
-| Arrosage - Historique | `input_text.arrosage_historique` | 255 | 5 dernières sessions |
+| Watering - Current Status | `input_text.watering_current_status` | 255 | Statut en temps réel |
+| Watering - History | `input_text.watering_history` | 255 | 5 dernières sessions |
 
 ### 2. Matériel
 
@@ -46,13 +46,13 @@ Lors de la création de l'automatisation :
 - **Switch arrosage** : `switch.water_valve` (votre SONOFF SWV)
 - **Entité météo** : `weather.irm_kmi_home`
 - **Capteur volume** : `sensor.water_valve_water_consumed`
-- **Compteur jours secs** : `input_number.jours_sans_pluie`
+- **Compteur jours secs** : `input_number.dry_days_counter`
 
 ### Entités optionnelles
 - **Capteur pluie jour** : capteur pluie cumulée (si disponible)
-- **Compteur litres** : `input_number.arrosage_litres_cumules`
-- **Statut actuel** : `input_text.arrosage_statut_actuel`
-- **Historique** : `input_text.arrosage_historique`
+- **Compteur litres** : `input_number.watering_cumulative_liters`
+- **Statut actuel** : `input_text.watering_current_status`
+- **Historique** : `input_text.watering_history`
 
 ### Paramètres recommandés (Belgique)
 - **Heure déclenchement** : `06:00:00`
@@ -173,4 +173,6 @@ Problème ? Ouvrez une issue sur GitHub avec :
 - Version Home Assistant
 - Logs de l'automatisation
 - Capture d'écran de la config
+
+
 

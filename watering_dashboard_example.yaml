@@ -8,11 +8,11 @@ cards:
     content: |
       ## 🌱 Smart Watering Status
       
-      **Current:** {{ states('input_text.arrosage_statut_actuel') }}
+      **Current:** {{ states('input_text.watering_current_status') }}
       
-      **Cumulative Usage:** {{ states('input_number.arrosage_litres_cumules') | round(1) }} L
+      **Cumulative Usage:** {{ states('input_number.watering_cumulative_liters') | round(1) }} L
       
-      **Consecutive Dry Days:** {{ states('input_number.jours_sans_pluie') | int }}
+      **Consecutive Dry Days:** {{ states('input_number.dry_days_counter') | int }}
     title: Current Status
 
   # History Card
@@ -20,7 +20,7 @@ cards:
     content: |
       ## 📊 Recent Watering History
       
-      {% set history = states('input_text.arrosage_historique') %}
+      {% set history = states('input_text.watering_history') %}
       {% if history and history != 'unknown' %}
         {% for line in history.split(' | ') %}
       - {{ line }}
@@ -46,25 +46,27 @@ cards:
     title: Water Usage Trend (7 days)
     hours_to_show: 168
     entities:
-      - entity: input_number.arrosage_litres_cumules
+      - entity: input_number.watering_cumulative_liters
         name: Cumulative Liters
 
 # Helper Creation Guide
 # Create these helpers in Settings > Devices & Services > Helpers:
 #
-# 1. input_text.arrosage_statut_actuel
-#    - Name: "Arrosage - Statut Actuel"
+# 1. input_text.watering_current_status
+#    - Name: "Watering - Current Status"
 #    - Max length: 255
 #
-# 2. input_text.arrosage_historique
-#    - Name: "Arrosage - Historique"
+# 2. input_text.watering_history
+#    - Name: "Watering - History"
 #    - Max length: 255
 #
-# 3. input_number.arrosage_litres_cumules
-#    - Name: "Arrosage - Litres Cumulés"
+# 3. input_number.watering_cumulative_liters
+#    - Name: "Watering - Cumulative Liters"
 #    - Min: 0, Max: 99999, Step: 0.1
 #
-# 4. input_number.jours_sans_pluie
-#    - Name: "Arrosage - Jours Sans Pluie"
+# 4. input_number.dry_days_counter
+#    - Name: "Watering - Dry Days Counter"
 #    - Min: 0, Max: 30, Step: 1
+
+
 
