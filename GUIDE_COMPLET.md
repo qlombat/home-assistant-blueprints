@@ -1,4 +1,35 @@
-# 🌱 Smart Plant Watering v5 - Configuration Guide
+# 🌱 Smart Plant Watering v6 - Configuration Guide
+
+## ⚠️ Nouveautés v6 (Breaking Changes)
+
+Si vous migrez depuis v5, **vous devez reconfigurer l'automatisation** :
+
+### Noms d'inputs changés (français → anglais)
+- `switch_arrosage` → `watering_switch`
+- `heure_arrosage` → `watering_time`
+- `capteur_pluie_jour` → `rain_sensor_today`
+- `seuil_pluie_annulation` → `rain_cancel_threshold`
+- `seuil_pluie_reduction` → `rain_reduction_threshold`
+- `duree_base_minutes` → `base_duration_minutes`
+- `duree_max_minutes` → `max_duration_minutes`
+- `duree_min_minutes` → `min_duration_minutes`
+- `compteur_jours_sans_pluie` → `dry_days_counter`
+- `capteur_volume_eau` → `water_volume_sensor`
+- `compteur_litres_cumules` → `cumulative_liters_counter`
+- `statut_actuel` → `current_status`
+- `historique_arrosages` → `watering_history`
+- `activer_notifications` → `enable_notifications`
+- `service_notification` → `notification_service`
+
+### Helpers à recréer (noms anglais)
+| Ancien ID | Nouveau ID |
+|-----------|------------|
+| `input_number.jours_sans_pluie` | `input_number.dry_days_counter` |
+| `input_number.arrosage_litres_cumules` | `input_number.watering_cumulative_liters` |
+| `input_text.arrosage_statut_actuel` | `input_text.watering_current_status` |
+| `input_text.arrosage_historique` | `input_text.watering_history` |
+
+---
 
 ## Fonctionnement Global
 
@@ -74,21 +105,23 @@ Copiez le contenu de `watering_dashboard_example.yaml` dans votre dashboard Love
 ┌─────────────────────────────────────┐
 │ 🌱 Smart Watering Status            │
 ├─────────────────────────────────────┤
-│ Current: ✅ Completed: 42.5L in     │
-│          60min (22/05 06:58)        │
+│ Current Status: ✅ Completed:       │
+│ 42.5L in 60min (22/05 06:58)       │
 │                                     │
-│ Cumulative Usage: 1247.8 L          │
 │ Consecutive Dry Days: 3             │
+│ Last Session: 42.5L (60min)         │
 └─────────────────────────────────────┘
 
 ┌─────────────────────────────────────┐
-│ 📊 Recent Watering History          │
+│ 📊 Water Usage per Session          │
 ├─────────────────────────────────────┤
-│ - 22/05: 60min, 42.5L, 24°C        │
-│ - 21/05: 55min, 38.2L, 22°C        │
-│ - 20/05: 65min, 45.1L, 26°C        │
-│ - 19/05: 45min, 31.4L, 19°C        │
-│ - 18/05: 70min, 48.9L, 28°C        │
+│ - 22/05: 42.5L - 60min, 24°C       │
+│ - 21/05: 38.2L - 55min, 22°C       │
+│ - 20/05: 45.1L - 65min, 26°C       │
+│ - 19/05: 31.4L - 45min, 19°C       │
+│ - 18/05: 48.9L - 70min, 28°C       │
+│                                     │
+│ --- Total Cumulative: 205.9 L       │
 └─────────────────────────────────────┘
 ```
 
@@ -173,6 +206,9 @@ Problème ? Ouvrez une issue sur GitHub avec :
 - Version Home Assistant
 - Logs de l'automatisation
 - Capture d'écran de la config
+
+
+
 
 
 
