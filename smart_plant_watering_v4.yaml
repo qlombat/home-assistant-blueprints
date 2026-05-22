@@ -3,7 +3,7 @@ blueprint:
   description: >
     Intelligent automatic watering that adapts duration based on:
     - Current and forecasted temperature
-    - Number of consecutive hot/sunny days
+    - Number of consecutive dry days (no significant rain)
     - Relative humidity
     - Recent or forecasted rain
     - Wind speed (evaporation)
@@ -51,8 +51,8 @@ blueprint:
     # --- Configuration thresholds ---
     temperature_normale:
       name: "Normal reference temperature"
-      description: "Temperature considered normal (°C)"
-      default: 25
+      description: "Temperature considered normal for Belgium (°C)"
+      default: 22
       selector:
         number:
           min: 15
@@ -62,7 +62,7 @@ blueprint:
     temperature_canicule:
       name: "Heatwave threshold"
       description: "Above this temperature, heatwave mode is activated"
-      default: 35
+      default: 30
       selector:
         number:
           min: 30
@@ -120,11 +120,31 @@ blueprint:
           max: 60
           unit_of_measurement: "min"
 
-    compteur_jours_chauds:
-      name: "Consecutive hot days counter (helper)"
+    compteur_jours_sans_pluie:
+      name: "Consecutive dry days counter (helper)"
       description: >
-        An input_number helper that tracks consecutive hot days.
+        An input_number helper that tracks consecutive days without significant rain.
         Create an input_number helper (0-30) in HA.
+      selector:
+        entity:
+          domain: input_number
+
+    capteur_volume_eau:
+      name: "Water volume sensor (SONOFF SWV)"
+      description: >
+        The water consumption sensor exposed by your SONOFF SWV valve.
+        In Zigbee2MQTT: sensor.<name>_water_consumed
+        Reports cumulative liters since last reset.
+      selector:
+        entity:
+          domain: sensor
+
+    compteur_litres_cumules:
+      name: "Cumulative water usage counter (optional)"
+      description: >
+        An input_number helper to track total liters used over time.
+        Create an input_number helper (0-99999) in HA. Leave empty to skip.
+      default: ""
       selector:
         entity:
           domain: input_number
@@ -163,7 +183,9 @@ variables:
   notif_service: !input service_notification
   weather_ent: !input weather_entity
   rain_sensor: !input capteur_pluie_jour
-  trigger_compteur: !input compteur_jours_chauds
+  trigger_compteur: !input compteur_jours_sans_pluie
+  capteur_volume: !input capteur_volume_eau
+  compteur_litres: !input compteur_litres_cumules
 
   # Sensor values from weather entity attributes
   temperature: "{{ state_attr(weather_ent, 'temperature') | float(25) }}"
@@ -194,7 +216,7 @@ variables:
       0
     {% endif %}
 
-  jours_chauds: "{{ states(trigger_compteur) | float(0) }}"
+  jours_sans_pluie: "{{ states(trigger_compteur) | float(0) }}"
 
   # --- WATERING COEFFICIENT CALCULATION ---
 
@@ -212,10 +234,10 @@ variables:
   coef_vent: >
     {{ 1 + (vent / 10 * 0.05) }}
 
-  # Consecutive hot days factor: cumulative stress
-  # +10% per consecutive hot day (soil dries deeper)
-  coef_jours_chauds: >
-    {{ 1 + (jours_chauds * 0.10) }}
+  # Consecutive dry days factor: cumulative soil drying
+  # +8% per consecutive day without significant rain
+  coef_jours_sans_pluie: >
+    {{ 1 + (jours_sans_pluie * 0.08) }}
 
   # Rain factor: proportional reduction
   coef_pluie: >
@@ -239,7 +261,7 @@ variables:
 
   # Global coefficient
   coef_global: >
-    {{ (coef_temperature * coef_humidite * coef_vent * coef_jours_chauds * coef_pluie * coef_prevision) | round(2) }}
+    {{ (coef_temperature * coef_humidite * coef_vent * coef_jours_sans_pluie * coef_pluie * coef_prevision) | round(2) }}
 
   # Calculated duration
   duree_calculee: >
@@ -266,25 +288,21 @@ variables:
 condition: []
 
 action:
-  # --- Update consecutive hot days counter ---
+  # --- Update consecutive dry days counter ---
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ temperature >= temp_canicule }}"
-        sequence:
-          - action: input_number.increment
-            target:
-              entity_id: !input compteur_jours_chauds
-      - conditions:
-          - condition: template
-            value_template: "{{ temperature < temp_normale }}"
+            value_template: "{{ pluie_jour | float(0) >= seuil_reduction }}"
         sequence:
           - action: input_number.set_value
             target:
-              entity_id: !input compteur_jours_chauds
+              entity_id: !input compteur_jours_sans_pluie
             data:
               value: 0
-    default: []
+    default:
+      - action: input_number.increment
+        target:
+          entity_id: !input compteur_jours_sans_pluie
 
   # --- Watering or cancellation ---
   - choose:
@@ -309,6 +327,10 @@ action:
 
     # CASE 2: Adaptive watering
     default:
+      # Capture volume before watering
+      - variables:
+          volume_avant: "{{ states(capteur_volume) | float(0) }}"
+
       # Start notification
       - choose:
           - conditions:
@@ -324,7 +346,7 @@ action:
                     🌡️ Temp: {{ temperature }}°C (coef {{ coef_temperature | round(2) }})
                     💧 Humidity: {{ humidite }}% (coef {{ coef_humidite | round(2) }})
                     🌬️ Wind: {{ vent }} km/h (coef {{ coef_vent | round(2) }})
-                    ☀️ Hot days: {{ jours_chauds }} (coef {{ coef_jours_chauds | round(2) }})
+                    ☀️ Dry days: {{ jours_sans_pluie }} (coef {{ coef_jours_sans_pluie | round(2) }})
                     🌧️ Rain: {{ pluie_jour }}mm (coef {{ coef_pluie | round(2) }})
                     🔮 Forecast: {{ prevision_pluie }}% (coef {{ coef_prevision }})
                     ⛅ Condition: {{ weather_condition }}
@@ -344,6 +366,15 @@ action:
         target:
           entity_id: !input switch_arrosage
 
+      # Small delay to let sensor update after valve closes
+      - delay:
+          seconds: 10
+
+      # Capture volume after watering and calculate delta
+      - variables:
+          volume_apres: "{{ states(capteur_volume) | float(0) }}"
+          litres_session: "{{ (volume_apres - volume_avant) | round(1) }}"
+
       # End notification
       - choose:
           - conditions:
@@ -355,6 +386,20 @@ action:
                   title: "✅ Watering complete"
                   message: >
                     Watering finished after {{ duree_calculee }} minutes.
+                    💦 Water used: {{ litres_session }} L (measured by SWV)
                     Next watering tomorrow.
+        default: []
+
+      # Update cumulative liters counter if configured
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ compteur_litres != '' }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: !input compteur_litres_cumules
+                data:
+                  value: "{{ (states(compteur_litres) | float(0) + litres_session | float(0)) | round(1) }}"
         default: []
 
