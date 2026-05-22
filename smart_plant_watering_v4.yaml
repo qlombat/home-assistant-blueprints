@@ -398,7 +398,7 @@ action:
             sequence:
               - action: input_number.set_value
                 target:
-                  entity_id: !input compteur_litres_cumules
+                  entity_id: "{{ compteur_litres }}"
                 data:
                   value: "{{ (states(compteur_litres) | float(0) + litres_session | float(0)) | round(1) }}"
         default: []
