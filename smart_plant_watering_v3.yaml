@@ -8,6 +8,7 @@ blueprint:
     - Recent or forecasted rain
     - Wind speed (evaporation)
     Baseline: 1h = normal daily watering needs.
+    Uses a weather entity (e.g. IRM KMI Belgium) as data source.
   domain: automation
   input:
     # --- Control entities ---
@@ -26,42 +27,22 @@ blueprint:
       selector:
         time: {}
 
-    # --- Weather sensors ---
-    capteur_temperature:
-      name: "Outdoor temperature sensor"
-      description: "Current temperature in °C"
+    # --- Weather source ---
+    weather_entity:
+      name: "Weather entity"
+      description: >
+        Weather integration entity (e.g. weather.irm_kmi_home for IRM Belgium,
+        or weather.openweathermap). Must provide temperature, humidity, wind_speed attributes.
+      default: "weather.irm_kmi_home"
       selector:
         entity:
-          domain: sensor
-          device_class: temperature
-
-    capteur_humidite:
-      name: "Outdoor humidity sensor"
-      description: "Relative humidity in %"
-      selector:
-        entity:
-          domain: sensor
-          device_class: humidity
-
-    capteur_vent:
-      name: "Wind speed sensor (optional)"
-      description: "Wind speed in km/h"
-      default: ""
-      selector:
-        entity:
-          domain: sensor
+          domain: weather
 
     capteur_pluie_jour:
-      name: "Today's precipitation (mm)"
-      description: "Cumulative rain sensor for today"
-      default: ""
-      selector:
-        entity:
-          domain: sensor
-
-    capteur_prevision_pluie:
-      name: "Rain forecast (optional)"
-      description: "Rain probability (%) or forecasted mm"
+      name: "Today's precipitation sensor (optional)"
+      description: >
+        Cumulative rain sensor for today in mm.
+        If not available, rain data from the weather entity forecast will be used.
       default: ""
       selector:
         entity:
@@ -180,19 +161,39 @@ variables:
   seuil_reduction: !input seuil_pluie_reduction
   notif_active: !input activer_notifications
   notif_service: !input service_notification
+  weather_ent: !input weather_entity
+  rain_sensor: !input capteur_pluie_jour
+  trigger_compteur: !input compteur_jours_chauds
 
-  # Sensor values
-  temperature: "{{ states(trigger_temp) | float(25) }}"
-  humidite: "{{ states(trigger_hum) | float(50) }}"
-  vent: >
-    {% set v = trigger_vent %}
-    {% if v != '' %}{{ states(v) | float(0) }}{% else %}0{% endif %}
+  # Sensor values from weather entity attributes
+  temperature: "{{ state_attr(weather_ent, 'temperature') | float(25) }}"
+  humidite: "{{ state_attr(weather_ent, 'humidity') | float(50) }}"
+  vent: "{{ state_attr(weather_ent, 'wind_speed') | float(0) }}"
+  weather_condition: "{{ states(weather_ent) }}"
+
+  # Rain: use dedicated sensor if available, otherwise estimate from weather condition
   pluie_jour: >
-    {% set p = trigger_pluie %}
-    {% if p != '' %}{{ states(p) | float(0) }}{% else %}0{% endif %}
+    {% if rain_sensor != '' %}
+      {{ states(rain_sensor) | float(0) }}
+    {% elif weather_condition in ['rainy', 'pouring'] %}
+      6
+    {% elif weather_condition in ['lightning-rainy'] %}
+      8
+    {% else %}
+      0
+    {% endif %}
+
+  # Rain forecast: check if weather condition suggests upcoming rain
+  # IRM KMI exposes forecast data - we use the current condition as proxy
   prevision_pluie: >
-    {% set pp = trigger_prevision %}
-    {% if pp != '' %}{{ states(pp) | float(0) }}{% else %}0{% endif %}
+    {% if weather_condition in ['rainy', 'pouring', 'lightning-rainy'] %}
+      80
+    {% elif weather_condition in ['partlycloudy', 'cloudy', 'fog'] %}
+      30
+    {% else %}
+      0
+    {% endif %}
+
   jours_chauds: "{{ states(trigger_compteur) | float(0) }}"
 
   # --- WATERING COEFFICIENT CALCULATION ---
@@ -262,14 +263,6 @@ variables:
       Normal conditions
     {% endif %}
 
-  # Sensor variable context
-  trigger_temp: !input capteur_temperature
-  trigger_hum: !input capteur_humidite
-  trigger_vent: !input capteur_vent
-  trigger_pluie: !input capteur_pluie_jour
-  trigger_prevision: !input capteur_prevision_pluie
-  trigger_compteur: !input compteur_jours_chauds
-
 condition: []
 
 action:
@@ -311,7 +304,7 @@ action:
                       message: >
                         Watering cancelled: {{ raison_annulation }}.
                         Temperature: {{ temperature }}°C | Humidity: {{ humidite }}%
-                        Rain: {{ pluie_jour }}mm
+                        Rain: {{ pluie_jour }}mm | Condition: {{ weather_condition }}
             default: []
 
     # CASE 2: Adaptive watering
@@ -334,6 +327,7 @@ action:
                     ☀️ Hot days: {{ jours_chauds }} (coef {{ coef_jours_chauds | round(2) }})
                     🌧️ Rain: {{ pluie_jour }}mm (coef {{ coef_pluie | round(2) }})
                     🔮 Forecast: {{ prevision_pluie }}% (coef {{ coef_prevision }})
+                    ⛅ Condition: {{ weather_condition }}
         default: []
 
       # Turn on watering
@@ -363,3 +357,4 @@ action:
                     Watering finished after {{ duree_calculee }} minutes.
                     Next watering tomorrow.
         default: []
+
