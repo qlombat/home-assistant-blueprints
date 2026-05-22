@@ -7,7 +7,10 @@ blueprint:
     - Relative humidity
     - Recent or forecasted rain
     - Wind speed (evaporation)
-    Baseline: 1h = normal daily watering needs.
+    
+    Configurable baseline duration (default 60min) is multiplied by environmental coefficients.
+    Example: 60min base × 1.5 total coefficient = 90min actual watering.
+    
     Uses a weather entity (e.g. IRM KMI Belgium) as data source.
   domain: automation
   input:
@@ -92,22 +95,31 @@ blueprint:
 
     base_duration_minutes:
       name: "Base duration (minutes)"
-      description: "Watering duration for a normal day (60 = daily needs)"
+      description: >
+        Baseline watering duration for a normal day with ideal conditions.
+        This is your reference point: all coefficients multiply this value.
+        Recommended: 60min = 1h daily watering needs for most plants.
+        Adjust based on your soil type, plant needs, and irrigation flow rate.
       default: 60
       selector:
         number:
-          min: 10
-          max: 120
+          min: 5
+          max: 240
+          step: 5
           unit_of_measurement: "min"
 
     max_duration_minutes:
       name: "Maximum duration (minutes)"
-      description: "Max watering duration even during heatwave"
+      description: >
+        Maximum watering duration cap, even during extreme conditions.
+        Safety limit to prevent over-watering or valve malfunction.
+        Should be at least 2x your base duration.
       default: 120
       selector:
         number:
-          min: 60
-          max: 180
+          min: 30
+          max: 480
+          step: 10
           unit_of_measurement: "min"
 
     min_duration_minutes:
