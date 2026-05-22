@@ -8,11 +8,11 @@ cards:
     content: |
       ## 🌱 Smart Watering Status
       
-      **Current:** {{ states('input_text.watering_current_status') }}
+      **Current:** {{ states('input_text.watering_current_status') | default('Not configured', true) }}
       
-      **Cumulative Usage:** {{ states('input_number.watering_cumulative_liters') | round(1) }} L
+      **Cumulative Usage:** {{ states('input_number.watering_cumulative_liters') | float(0) | round(1) }} L
       
-      **Consecutive Dry Days:** {{ states('input_number.dry_days_counter') | int }}
+      **Consecutive Dry Days:** {{ states('input_number.dry_days_counter') | int(0) }}
     title: Current Status
 
   # History Card
@@ -67,6 +67,7 @@ cards:
 # 4. input_number.dry_days_counter
 #    - Name: "Watering - Dry Days Counter"
 #    - Min: 0, Max: 30, Step: 1
+
 
 
 
