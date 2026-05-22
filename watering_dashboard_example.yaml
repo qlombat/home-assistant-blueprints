@@ -8,27 +8,48 @@ cards:
     content: |
       ## 🌱 Smart Watering Status
       
-      **Current:** {{ states('input_text.watering_current_status') | default('Not configured', true) }}
-      
-      **Cumulative Usage:** {{ states('input_number.watering_cumulative_liters') | float(0) | round(1) }} L
+      **Current Status:** {{ states('input_text.watering_current_status') | default('Not configured', true) }}
       
       **Consecutive Dry Days:** {{ states('input_number.dry_days_counter') | int(0) }}
+      
+      {% set history = states('input_text.watering_history') %}
+      {% if history and history != 'unknown' and history != '' %}
+        {% set sessions = history.split(' | ') %}
+        {% set last = sessions[0].split(': ')[1].split(', ') if sessions|length > 0 else [] %}
+        {% if last|length >= 2 %}
+      **Last Session:** {{ last[1] }} ({{ last[0] }})
+        {% endif %}
+      {% else %}
+      **Last Session:** No data yet
+      {% endif %}
     title: Current Status
 
   # History Card
   - type: markdown
     content: |
-      ## 📊 Recent Watering History
+      ## 📊 Water Usage per Session
       
       {% set history = states('input_text.watering_history') %}
-      {% if history and history != 'unknown' %}
+      {% if history and history != 'unknown' and history != '' %}
         {% for line in history.split(' | ') %}
+          {% set parts = line.split(': ') %}
+          {% if parts|length == 2 %}
+            {% set date = parts[0] %}
+            {% set details = parts[1].split(', ') %}
+            {% if details|length >= 3 %}
+      - **{{ date }}**: {{ details[1] }} - {{ details[0] }}, {{ details[2] }}
+            {% else %}
       - {{ line }}
+            {% endif %}
+          {% endif %}
         {% endfor %}
       {% else %}
-      *No watering history yet*
+      *No watering sessions yet*
       {% endif %}
-    title: Last 5 Sessions
+      
+      ---
+      **Total Cumulative:** {{ states('input_number.watering_cumulative_liters') | float(0) | round(1) }} L
+    title: Session History
 
   # Weather & Conditions
   - type: entities
@@ -67,6 +88,7 @@ cards:
 # 4. input_number.dry_days_counter
 #    - Name: "Watering - Dry Days Counter"
 #    - Min: 0, Max: 30, Step: 1
+
 
 
 
