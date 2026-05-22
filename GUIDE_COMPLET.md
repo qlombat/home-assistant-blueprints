@@ -21,13 +21,13 @@ Si vous migrez depuis v5, **vous devez reconfigurer l'automatisation** :
 - `activer_notifications` → `enable_notifications`
 - `service_notification` → `notification_service`
 
-### Helpers à recréer (noms anglais)
-| Ancien ID | Nouveau ID |
+### Helpers à recréer (avec préfixe smart_watering_)
+| Ancien ID | Nouveau ID v6 |
 |-----------|------------|
-| `input_number.jours_sans_pluie` | `input_number.dry_days_counter` |
-| `input_number.arrosage_litres_cumules` | `input_number.watering_cumulative_liters` |
-| `input_text.arrosage_statut_actuel` | `input_text.watering_current_status` |
-| `input_text.arrosage_historique` | `input_text.watering_history` |
+| `input_number.jours_sans_pluie` | `input_number.smart_watering_dry_days` |
+| `input_number.arrosage_litres_cumules` | `input_number.smart_watering_total_liters` |
+| `input_text.arrosage_statut_actuel` | `input_text.smart_watering_status` |
+| `input_text.arrosage_historique` | `input_text.smart_watering_history` |
 
 ---
 
@@ -47,15 +47,15 @@ Ce blueprint gère l'arrosage automatique adaptatif avec :
 
 | Nom | ID | Min | Max | Pas | Usage |
 |-----|-----|-----|-----|-----|-------|
-| Watering - Dry Days Counter | `input_number.dry_days_counter` | 0 | 30 | 1 | Compteur de jours secs |
-| Watering - Cumulative Liters | `input_number.watering_cumulative_liters` | 0 | 99999 | 0.1 | Total litres utilisés |
+| Smart Watering - Dry Days | `input_number.smart_watering_dry_days` | 0 | 30 | 1 | Compteur de jours secs |
+| Smart Watering - Total Liters | `input_number.smart_watering_total_liters` | 0 | 99999 | 0.1 | Total litres utilisés |
 
 #### **input_text** (Texte)
 
 | Nom | ID | Longueur max | Usage |
 |-----|-----|--------------|-------|
-| Watering - Current Status | `input_text.watering_current_status` | 255 | Statut en temps réel |
-| Watering - History | `input_text.watering_history` | 255 | 5 dernières sessions |
+| Smart Watering - Status | `input_text.smart_watering_status` | 255 | Statut en temps réel |
+| Smart Watering - History | `input_text.smart_watering_history` | 255 | 5 dernières sessions |
 
 ### 2. Matériel
 
@@ -77,13 +77,13 @@ Lors de la création de l'automatisation :
 - **Switch arrosage** : `switch.water_valve` (votre SONOFF SWV)
 - **Entité météo** : `weather.irm_kmi_home`
 - **Capteur volume** : `sensor.water_valve_water_consumed`
-- **Compteur jours secs** : `input_number.dry_days_counter`
+- **Compteur jours secs** : `input_number.smart_watering_dry_days`
 
 ### Entités optionnelles
 - **Capteur pluie jour** : capteur pluie cumulée (si disponible)
-- **Compteur litres** : `input_number.watering_cumulative_liters`
-- **Statut actuel** : `input_text.watering_current_status`
-- **Historique** : `input_text.watering_history`
+- **Compteur litres** : `input_number.smart_watering_total_liters`
+- **Statut actuel** : `input_text.smart_watering_status`
+- **Historique** : `input_text.smart_watering_history`
 
 ### Paramètres recommandés (Belgique)
 - **Heure déclenchement** : `06:00:00`
@@ -206,6 +206,9 @@ Problème ? Ouvrez une issue sur GitHub avec :
 - Version Home Assistant
 - Logs de l'automatisation
 - Capture d'écran de la config
+
+
+
 
 
 

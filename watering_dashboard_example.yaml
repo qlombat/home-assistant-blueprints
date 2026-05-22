@@ -8,11 +8,11 @@ cards:
     content: |
       ## 🌱 Smart Watering Status
       
-      **Current Status:** {{ states('input_text.watering_current_status') | default('Not configured', true) }}
+      **Current Status:** {{ states('input_text.smart_watering_status') | default('Not configured', true) }}
       
-      **Consecutive Dry Days:** {{ states('input_number.dry_days_counter') | int(0) }}
+      **Consecutive Dry Days:** {{ states('input_number.smart_watering_dry_days') | int(0) }}
       
-      {% set history = states('input_text.watering_history') %}
+      {% set history = states('input_text.smart_watering_history') %}
       {% if history and history != 'unknown' and history != '' %}
         {% set sessions = history.split(' | ') %}
         {% set last = sessions[0].split(': ')[1].split(', ') if sessions|length > 0 else [] %}
@@ -29,7 +29,7 @@ cards:
     content: |
       ## 📊 Water Usage per Session
       
-      {% set history = states('input_text.watering_history') %}
+      {% set history = states('input_text.smart_watering_history') %}
       {% if history and history != 'unknown' and history != '' %}
         {% for line in history.split(' | ') %}
           {% set parts = line.split(': ') %}
@@ -48,7 +48,7 @@ cards:
       {% endif %}
       
       ---
-      **Total Cumulative:** {{ states('input_number.watering_cumulative_liters') | float(0) | round(1) }} L
+      **Total Cumulative:** {{ states('input_number.smart_watering_total_liters') | float(0) | round(1) }} L
     title: Session History
 
   # Weather & Conditions
@@ -67,27 +67,32 @@ cards:
     title: Water Usage Trend (7 days)
     hours_to_show: 168
     entities:
-      - entity: input_number.watering_cumulative_liters
+      - entity: input_number.smart_watering_total_liters
         name: Cumulative Liters
 
 # Helper Creation Guide
 # Create these helpers in Settings > Devices & Services > Helpers:
 #
-# 1. input_text.watering_current_status
-#    - Name: "Watering - Current Status"
+# 1. input_text.smart_watering_status
+#    - Name: "Smart Watering - Status"
 #    - Max length: 255
 #
-# 2. input_text.watering_history
-#    - Name: "Watering - History"
+# 2. input_text.smart_watering_history
+#    - Name: "Smart Watering - History"
 #    - Max length: 255
 #
-# 3. input_number.watering_cumulative_liters
-#    - Name: "Watering - Cumulative Liters"
+# 3. input_number.smart_watering_total_liters
+#    - Name: "Smart Watering - Total Liters"
 #    - Min: 0, Max: 99999, Step: 0.1
 #
-# 4. input_number.dry_days_counter
-#    - Name: "Watering - Dry Days Counter"
+# 4. input_number.smart_watering_dry_days
+#    - Name: "Smart Watering - Dry Days"
 #    - Min: 0, Max: 30, Step: 1
+
+
+
+
+
 
 
 

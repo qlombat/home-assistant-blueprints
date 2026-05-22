@@ -125,7 +125,7 @@ blueprint:
       description: >
         An input_number helper that tracks consecutive days without significant rain.
         Create an input_number helper (0-30) in HA.
-        Example ID: input_number.dry_days_counter
+        Suggested ID: input_number.smart_watering_dry_days
       selector:
         entity:
           domain: input_number
@@ -145,7 +145,7 @@ blueprint:
       description: >
         An input_number helper to track total liters used over time.
         Create an input_number helper (0-99999) in HA. Leave empty to skip.
-        Example ID: input_number.watering_cumulative_liters
+        Suggested ID: input_number.smart_watering_total_liters
       default: ""
       selector:
         entity:
@@ -156,7 +156,7 @@ blueprint:
       description: >
         An input_text helper to store current watering status for dashboard display.
         Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
-        Example ID: input_text.watering_current_status
+        Suggested ID: input_text.smart_watering_status
       default: ""
       selector:
         entity:
@@ -167,7 +167,7 @@ blueprint:
       description: >
         An input_text helper to store last 5 watering sessions summary.
         Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
-        Example ID: input_text.watering_history
+        Suggested ID: input_text.smart_watering_history
       default: ""
       selector:
         entity:
