@@ -1,0 +1,365 @@
+blueprint:
+  name: "Smart Adaptive Plant Watering"
+  description: >
+    Intelligent automatic watering that adapts duration based on:
+    - Current and forecasted temperature
+    - Number of consecutive hot/sunny days
+    - Relative humidity
+    - Recent or forecasted rain
+    - Wind speed (evaporation)
+    Baseline: 1h = normal daily watering needs.
+  domain: automation
+  input:
+    # --- Control entities ---
+    switch_arrosage:
+      name: "Watering Switch/Valve"
+      description: "The switch entity that controls watering"
+      selector:
+        entity:
+          domain: switch
+
+    # --- Trigger ---
+    heure_arrosage:
+      name: "Watering time"
+      description: "Trigger time (early morning recommended)"
+      default: "06:00:00"
+      selector:
+        time: {}
+
+    # --- Weather sensors ---
+    capteur_temperature:
+      name: "Outdoor temperature sensor"
+      description: "Current temperature in °C"
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    capteur_humidite:
+      name: "Outdoor humidity sensor"
+      description: "Relative humidity in %"
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+
+    capteur_vent:
+      name: "Wind speed sensor (optional)"
+      description: "Wind speed in km/h"
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    capteur_pluie_jour:
+      name: "Today's precipitation (mm)"
+      description: "Cumulative rain sensor for today"
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    capteur_prevision_pluie:
+      name: "Rain forecast (optional)"
+      description: "Rain probability (%) or forecasted mm"
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    # --- Configuration thresholds ---
+    temperature_normale:
+      name: "Normal reference temperature"
+      description: "Temperature considered normal (°C)"
+      default: 25
+      selector:
+        number:
+          min: 15
+          max: 35
+          unit_of_measurement: "°C"
+
+    temperature_canicule:
+      name: "Heatwave threshold"
+      description: "Above this temperature, heatwave mode is activated"
+      default: 35
+      selector:
+        number:
+          min: 30
+          max: 45
+          unit_of_measurement: "°C"
+
+    seuil_pluie_annulation:
+      name: "Rain to cancel watering (mm)"
+      description: "If rain >= this threshold, watering is cancelled"
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: "mm"
+
+    seuil_pluie_reduction:
+      name: "Rain to reduce watering (mm)"
+      description: "If rain >= this threshold, watering is reduced"
+      default: 2
+      selector:
+        number:
+          min: 0.5
+          max: 15
+          step: 0.5
+          unit_of_measurement: "mm"
+
+    duree_base_minutes:
+      name: "Base duration (minutes)"
+      description: "Watering duration for a normal day (60 = daily needs)"
+      default: 60
+      selector:
+        number:
+          min: 10
+          max: 120
+          unit_of_measurement: "min"
+
+    duree_max_minutes:
+      name: "Maximum duration (minutes)"
+      description: "Max watering duration even during heatwave"
+      default: 120
+      selector:
+        number:
+          min: 60
+          max: 180
+          unit_of_measurement: "min"
+
+    duree_min_minutes:
+      name: "Minimum duration (minutes)"
+      description: "Min watering duration (if not cancelled)"
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 60
+          unit_of_measurement: "min"
+
+    compteur_jours_chauds:
+      name: "Consecutive hot days counter (helper)"
+      description: >
+        An input_number helper that tracks consecutive hot days.
+        Create an input_number helper (0-30) in HA.
+      selector:
+        entity:
+          domain: input_number
+
+    activer_notifications:
+      name: "Enable notifications"
+      description: "Send a notification with the watering summary"
+      default: true
+      selector:
+        boolean: {}
+
+    service_notification:
+      name: "Notification service"
+      description: "E.g.: notify.mobile_app_my_phone"
+      default: "notify.notify"
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: time
+    at: !input heure_arrosage
+
+variables:
+  # Inputs
+  temp_normale: !input temperature_normale
+  temp_canicule: !input temperature_canicule
+  duree_base: !input duree_base_minutes
+  duree_max: !input duree_max_minutes
+  duree_min: !input duree_min_minutes
+  seuil_annulation: !input seuil_pluie_annulation
+  seuil_reduction: !input seuil_pluie_reduction
+  notif_active: !input activer_notifications
+  notif_service: !input service_notification
+
+  # Sensor values
+  temperature: "{{ states(trigger_temp) | float(25) }}"
+  humidite: "{{ states(trigger_hum) | float(50) }}"
+  vent: >
+    {% set v = trigger_vent %}
+    {% if v != '' %}{{ states(v) | float(0) }}{% else %}0{% endif %}
+  pluie_jour: >
+    {% set p = trigger_pluie %}
+    {% if p != '' %}{{ states(p) | float(0) }}{% else %}0{% endif %}
+  prevision_pluie: >
+    {% set pp = trigger_prevision %}
+    {% if pp != '' %}{{ states(pp) | float(0) }}{% else %}0{% endif %}
+  jours_chauds: "{{ states(trigger_compteur) | float(0) }}"
+
+  # --- WATERING COEFFICIENT CALCULATION ---
+
+  # Temperature factor: +2% per degree above normal, -2% below
+  coef_temperature: >
+    {{ 1 + ((temperature - temp_normale) * 0.02) }}
+
+  # Humidity factor: dry air = more watering, humid air = less
+  # Reference 50%. Each 10% below = +10% watering
+  coef_humidite: >
+    {{ 1 + ((50 - humidite) * 0.01) }}
+
+  # Wind factor: wind increases evaporation
+  # +5% per 10 km/h
+  coef_vent: >
+    {{ 1 + (vent / 10 * 0.05) }}
+
+  # Consecutive hot days factor: cumulative stress
+  # +10% per consecutive hot day (soil dries deeper)
+  coef_jours_chauds: >
+    {{ 1 + (jours_chauds * 0.10) }}
+
+  # Rain factor: proportional reduction
+  coef_pluie: >
+    {% if pluie_jour >= seuil_annulation %}
+      0
+    {% elif pluie_jour >= seuil_reduction %}
+      {{ 1 - (pluie_jour / seuil_annulation) }}
+    {% else %}
+      1
+    {% endif %}
+
+  # Rain forecast factor (if probability > 70% or > 5mm forecasted, reduce)
+  coef_prevision: >
+    {% if prevision_pluie > 70 %}
+      0.5
+    {% elif prevision_pluie > 40 %}
+      0.75
+    {% else %}
+      1
+    {% endif %}
+
+  # Global coefficient
+  coef_global: >
+    {{ (coef_temperature * coef_humidite * coef_vent * coef_jours_chauds * coef_pluie * coef_prevision) | round(2) }}
+
+  # Calculated duration
+  duree_calculee: >
+    {% set d = (duree_base * coef_global) | round(0) %}
+    {% if coef_pluie == 0 %}
+      0
+    {% elif d > duree_max %}
+      {{ duree_max }}
+    {% elif d < duree_min %}
+      {{ duree_min }}
+    {% else %}
+      {{ d }}
+    {% endif %}
+
+  # For summary
+  arrosage_annule: "{{ duree_calculee | int == 0 }}"
+  raison_annulation: >
+    {% if pluie_jour >= seuil_annulation %}
+      Sufficient rain today ({{ pluie_jour }}mm)
+    {% else %}
+      Normal conditions
+    {% endif %}
+
+  # Sensor variable context
+  trigger_temp: !input capteur_temperature
+  trigger_hum: !input capteur_humidite
+  trigger_vent: !input capteur_vent
+  trigger_pluie: !input capteur_pluie_jour
+  trigger_prevision: !input capteur_prevision_pluie
+  trigger_compteur: !input compteur_jours_chauds
+
+condition: []
+
+action:
+  # --- Update consecutive hot days counter ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ temperature >= temp_canicule }}"
+        sequence:
+          - action: input_number.increment
+            target:
+              entity_id: !input compteur_jours_chauds
+      - conditions:
+          - condition: template
+            value_template: "{{ temperature < temp_normale }}"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: !input compteur_jours_chauds
+            data:
+              value: 0
+    default: []
+
+  # --- Watering or cancellation ---
+  - choose:
+      # CASE 1: Watering cancelled (too much rain)
+      - conditions:
+          - condition: template
+            value_template: "{{ arrosage_annule }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "🌧️ Watering cancelled"
+                      message: >
+                        Watering cancelled: {{ raison_annulation }}.
+                        Temperature: {{ temperature }}°C | Humidity: {{ humidite }}%
+                        Rain: {{ pluie_jour }}mm
+            default: []
+
+    # CASE 2: Adaptive watering
+    default:
+      # Start notification
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ notif_active }}"
+            sequence:
+              - action: "{{ notif_service }}"
+                data:
+                  title: "🌱 Smart watering started"
+                  message: >
+                    Duration: {{ duree_calculee }} min (base {{ duree_base }} min × coef {{ coef_global }})
+                    📊 Details:
+                    🌡️ Temp: {{ temperature }}°C (coef {{ coef_temperature | round(2) }})
+                    💧 Humidity: {{ humidite }}% (coef {{ coef_humidite | round(2) }})
+                    🌬️ Wind: {{ vent }} km/h (coef {{ coef_vent | round(2) }})
+                    ☀️ Hot days: {{ jours_chauds }} (coef {{ coef_jours_chauds | round(2) }})
+                    🌧️ Rain: {{ pluie_jour }}mm (coef {{ coef_pluie | round(2) }})
+                    🔮 Forecast: {{ prevision_pluie }}% (coef {{ coef_prevision }})
+        default: []
+
+      # Turn on watering
+      - action: switch.turn_on
+        target:
+          entity_id: !input switch_arrosage
+
+      # Wait for calculated duration
+      - delay:
+          minutes: "{{ duree_calculee | int }}"
+
+      # Turn off watering
+      - action: switch.turn_off
+        target:
+          entity_id: !input switch_arrosage
+
+      # End notification
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ notif_active }}"
+            sequence:
+              - action: "{{ notif_service }}"
+                data:
+                  title: "✅ Watering complete"
+                  message: >
+                    Watering finished after {{ duree_calculee }} minutes.
+                    Next watering tomorrow.
+        default: []
