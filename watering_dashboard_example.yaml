@@ -1,0 +1,70 @@
+# Example Lovelace Dashboard Card for Smart Plant Watering
+# Add this to your Home Assistant dashboard
+
+type: vertical-stack
+cards:
+  # Current Status Card
+  - type: markdown
+    content: |
+      ## 🌱 Smart Watering Status
+      
+      **Current:** {{ states('input_text.arrosage_statut_actuel') }}
+      
+      **Cumulative Usage:** {{ states('input_number.arrosage_litres_cumules') | round(1) }} L
+      
+      **Consecutive Dry Days:** {{ states('input_number.jours_sans_pluie') | int }}
+    title: Current Status
+
+  # History Card
+  - type: markdown
+    content: |
+      ## 📊 Recent Watering History
+      
+      {% set history = states('input_text.arrosage_historique') %}
+      {% if history and history != 'unknown' %}
+        {% for line in history.split(' | ') %}
+      - {{ line }}
+        {% endfor %}
+      {% else %}
+      *No watering history yet*
+      {% endif %}
+    title: Last 5 Sessions
+
+  # Weather & Conditions
+  - type: entities
+    title: Current Conditions
+    entities:
+      - entity: weather.irm_kmi_home
+        name: Weather
+      - entity: sensor.water_valve_water_consumed
+        name: Total Water (SWV)
+      - entity: switch.water_valve
+        name: Valve Control
+
+  # Chart: Water Usage Trend
+  - type: history-graph
+    title: Water Usage Trend (7 days)
+    hours_to_show: 168
+    entities:
+      - entity: input_number.arrosage_litres_cumules
+        name: Cumulative Liters
+
+# Helper Creation Guide
+# Create these helpers in Settings > Devices & Services > Helpers:
+#
+# 1. input_text.arrosage_statut_actuel
+#    - Name: "Arrosage - Statut Actuel"
+#    - Max length: 255
+#
+# 2. input_text.arrosage_historique
+#    - Name: "Arrosage - Historique"
+#    - Max length: 255
+#
+# 3. input_number.arrosage_litres_cumules
+#    - Name: "Arrosage - Litres Cumulés"
+#    - Min: 0, Max: 99999, Step: 0.1
+#
+# 4. input_number.jours_sans_pluie
+#    - Name: "Arrosage - Jours Sans Pluie"
+#    - Min: 0, Max: 30, Step: 1
+

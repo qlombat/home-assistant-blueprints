@@ -149,6 +149,26 @@ blueprint:
         entity:
           domain: input_number
 
+    statut_actuel:
+      name: "Current status display (optional)"
+      description: >
+        An input_text helper to store current watering status for dashboard display.
+        Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
+      default: ""
+      selector:
+        entity:
+          domain: input_text
+
+    historique_arrosages:
+      name: "Watering history (optional)"
+      description: >
+        An input_text helper to store last 5 watering sessions summary.
+        Create an input_text helper (max 255 chars) in HA. Leave empty to skip.
+      default: ""
+      selector:
+        entity:
+          domain: input_text
+
     activer_notifications:
       name: "Enable notifications"
       description: "Send a notification with the watering summary"
@@ -186,6 +206,8 @@ variables:
   trigger_compteur: !input compteur_jours_sans_pluie
   capteur_volume: !input capteur_volume_eau
   compteur_litres: !input compteur_litres_cumules
+  statut_helper: !input statut_actuel
+  historique_helper: !input historique_arrosages
 
   # Sensor values from weather entity attributes
   temperature: "{{ state_attr(weather_ent, 'temperature') | float(25) }}"
@@ -311,6 +333,20 @@ action:
           - condition: template
             value_template: "{{ arrosage_annule }}"
         sequence:
+          # Update status
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ statut_helper != '' }}"
+                sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ statut_helper }}"
+                    data:
+                      value: "❌ Cancelled: {{ raison_annulation }} ({{ now().strftime('%d/%m %H:%M') }})"
+            default: []
+
+          # Send notification
           - choose:
               - conditions:
                   - condition: template
@@ -330,6 +366,19 @@ action:
       # Capture volume before watering
       - variables:
           volume_avant: "{{ states(capteur_volume) | float(0) }}"
+
+      # Update status: in progress
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ statut_helper != '' }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: "{{ statut_helper }}"
+                data:
+                  value: "🚿 In progress: {{ duree_calculee }}min ({{ now().strftime('%d/%m %H:%M') }})"
+        default: []
 
       # Start notification
       - choose:
@@ -374,6 +423,41 @@ action:
       - variables:
           volume_apres: "{{ states(capteur_volume) | float(0) }}"
           litres_session: "{{ (volume_apres - volume_avant) | round(1) }}"
+          summary_line: "{{ now().strftime('%d/%m') }}: {{ duree_calculee }}min, {{ litres_session }}L, {{ temperature }}°C"
+
+      # Update status: completed
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ statut_helper != '' }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: "{{ statut_helper }}"
+                data:
+                  value: "✅ Completed: {{ litres_session }}L in {{ duree_calculee }}min ({{ now().strftime('%d/%m %H:%M') }})"
+        default: []
+
+      # Update history (keep last 5 sessions)
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ historique_helper != '' }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: "{{ historique_helper }}"
+                data:
+                  value: >
+                    {% set old = states(historique_helper) %}
+                    {% if old == 'unknown' or old == '' %}
+                      {{ summary_line }}
+                    {% else %}
+                      {% set lines = old.split(' | ') %}
+                      {% set new_lines = ([summary_line] + lines)[:5] %}
+                      {{ new_lines | join(' | ') }}
+                    {% endif %}
+        default: []
 
       # End notification
       - choose:

@@ -1,0 +1,176 @@
+# 🌱 Smart Plant Watering v5 - Configuration Guide
+
+## Fonctionnement Global
+
+Ce blueprint gère l'arrosage automatique adaptatif avec :
+- Calcul intelligent basé sur température, humidité, vent, pluie
+- Suivi des jours consécutifs sans pluie
+- Mesure réelle de la consommation via SONOFF SWV
+- Affichage temps réel du statut sur dashboard
+
+## 📋 Prérequis
+
+### 1. Créer les Helpers (Paramètres > Appareils & services > Assistants)
+
+#### **input_number** (Nombre)
+
+| Nom | ID | Min | Max | Pas | Usage |
+|-----|-----|-----|-----|-----|-------|
+| Arrosage - Jours Sans Pluie | `input_number.jours_sans_pluie` | 0 | 30 | 1 | Compteur de jours secs |
+| Arrosage - Litres Cumulés | `input_number.arrosage_litres_cumules` | 0 | 99999 | 0.1 | Total litres utilisés |
+
+#### **input_text** (Texte)
+
+| Nom | ID | Longueur max | Usage |
+|-----|-----|--------------|-------|
+| Arrosage - Statut Actuel | `input_text.arrosage_statut_actuel` | 255 | Statut en temps réel |
+| Arrosage - Historique | `input_text.arrosage_historique` | 255 | 5 dernières sessions |
+
+### 2. Matériel
+
+- **SONOFF SWV** (Smart Water Valve) connecté via Zigbee2MQTT ou ZHA
+- Capteurs exposés :
+  - `sensor.<nom>_water_consumed` (volume cumulé en litres)
+  - `switch.<nom>` (contrôle vanne)
+
+### 3. Intégration Météo
+
+- **IRM KMI** (Belgique) : `weather.irm_kmi_home`
+- Ou tout autre service météo exposant : température, humidité, vent, condition
+
+## 🔧 Configuration du Blueprint
+
+Lors de la création de l'automatisation :
+
+### Entités obligatoires
+- **Switch arrosage** : `switch.water_valve` (votre SONOFF SWV)
+- **Entité météo** : `weather.irm_kmi_home`
+- **Capteur volume** : `sensor.water_valve_water_consumed`
+- **Compteur jours secs** : `input_number.jours_sans_pluie`
+
+### Entités optionnelles
+- **Capteur pluie jour** : capteur pluie cumulée (si disponible)
+- **Compteur litres** : `input_number.arrosage_litres_cumules`
+- **Statut actuel** : `input_text.arrosage_statut_actuel`
+- **Historique** : `input_text.arrosage_historique`
+
+### Paramètres recommandés (Belgique)
+- **Heure déclenchement** : `06:00:00`
+- **Température normale** : `22°C`
+- **Seuil canicule** : `30°C`
+- **Pluie annulation** : `5mm`
+- **Pluie réduction** : `2mm`
+- **Durée base** : `60 min`
+- **Durée max** : `120 min`
+- **Durée min** : `15 min`
+
+## 📊 Dashboard
+
+Copiez le contenu de `watering_dashboard_example.yaml` dans votre dashboard Lovelace.
+
+### Exemple d'affichage
+
+```
+┌─────────────────────────────────────┐
+│ 🌱 Smart Watering Status            │
+├─────────────────────────────────────┤
+│ Current: ✅ Completed: 42.5L in     │
+│          60min (22/05 06:58)        │
+│                                     │
+│ Cumulative Usage: 1247.8 L          │
+│ Consecutive Dry Days: 3             │
+└─────────────────────────────────────┘
+
+┌─────────────────────────────────────┐
+│ 📊 Recent Watering History          │
+├─────────────────────────────────────┤
+│ - 22/05: 60min, 42.5L, 24°C        │
+│ - 21/05: 55min, 38.2L, 22°C        │
+│ - 20/05: 65min, 45.1L, 26°C        │
+│ - 19/05: 45min, 31.4L, 19°C        │
+│ - 18/05: 70min, 48.9L, 28°C        │
+└─────────────────────────────────────┘
+```
+
+## 🧮 Logique de Calcul
+
+```
+Durée finale = Durée base × coef_temp × coef_humidité × coef_vent × coef_jours_secs × coef_pluie × coef_prévision
+```
+
+### Coefficients
+
+| Facteur | Logique |
+|---------|---------|
+| 🌡️ **Température** | +2% par °C au-dessus de 22°C, -2% en dessous |
+| 💧 **Humidité** | Référence 50%. +1% par point sous 50% |
+| 🌬️ **Vent** | +5% par tranche de 10 km/h |
+| ☀️ **Jours secs** | +8% par jour sans pluie (≥2mm) |
+| 🌧️ **Pluie jour** | Annulation si ≥5mm, réduction proportionnelle si ≥2mm |
+| 🔮 **Prévision** | -50% si pluie probable >70%, -25% si >40% |
+
+### Mise à jour du compteur jours secs
+- Si pluie ≥ 2mm → reset à 0
+- Sinon → incrémente de 1
+
+## 🔔 Notifications
+
+Activables ou désactivables. Format :
+
+**Début :**
+```
+🌱 Smart watering started
+Duration: 60 min (base 60 min × coef 1.0)
+📊 Details:
+🌡️ Temp: 24°C (coef 1.04)
+💧 Humidity: 60% (coef 0.90)
+🌬️ Wind: 15 km/h (coef 1.08)
+☀️ Dry days: 3 (coef 1.24)
+🌧️ Rain: 0mm (coef 1.00)
+🔮 Forecast: 0% (coef 1.00)
+```
+
+**Fin :**
+```
+✅ Watering complete
+Watering finished after 60 minutes.
+💦 Water used: 42.5 L (measured by SWV)
+```
+
+**Annulation :**
+```
+🌧️ Watering cancelled
+Watering cancelled: Sufficient rain today (6mm).
+Temperature: 18°C | Humidity: 85%
+```
+
+## 🛠️ Dépannage
+
+### Le statut ne s'affiche pas
+- Vérifiez que les `input_text` sont créés
+- Vérifiez les IDs dans la config du blueprint
+
+### Les litres sont à 0
+- Attendez 10 sec après fermeture vanne (délai intégré)
+- Vérifiez que le capteur `water_consumed` fonctionne dans les états
+
+### L'historique est tronqué
+- Limite 255 caractères pour `input_text`
+- Format compact : `22/05: 60min, 42.5L, 24°C`
+- Seulement 5 dernières sessions
+
+## 📈 Évolutions futures
+
+- [ ] Support multi-zones (plusieurs vannes)
+- [ ] Prévisions météo avancées (radar pluie)
+- [ ] Graphiques consommation par mois
+- [ ] Export CSV historique détaillé
+- [ ] Intégration capteur humidité sol
+
+## 🆘 Support
+
+Problème ? Ouvrez une issue sur GitHub avec :
+- Version Home Assistant
+- Logs de l'automatisation
+- Capture d'écran de la config
+
