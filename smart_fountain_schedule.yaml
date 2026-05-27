@@ -1,0 +1,206 @@
+blueprint:
+  name: "Smart Fountain Schedule"
+  description: >
+    Automatic fountain control via smart plug with schedule management.
+    Turns on the fountain at a configured start time (default 10:00)
+    and turns it off at a configured end time (default 02:00 next day).
+    
+    Handles Home Assistant restarts gracefully by checking current time
+    and adjusting the fountain state accordingly.
+  domain: automation
+  input:
+    fountain_switch:
+      name: "Fountain Smart Plug"
+      description: "The smart plug/switch entity that controls the fountain"
+      selector:
+        entity:
+          domain: switch
+
+    start_time:
+      name: "Start time"
+      description: "Time to turn on the fountain (default 10:00)"
+      default: "10:00:00"
+      selector:
+        time: {}
+
+    end_time:
+      name: "End time"
+      description: "Time to turn off the fountain (default 02:00 - next day)"
+      default: "02:00:00"
+      selector:
+        time: {}
+
+    enable_notifications:
+      name: "Enable notifications"
+      description: "Send notifications when fountain state changes"
+      default: false
+      selector:
+        boolean: {}
+
+    notification_service:
+      name: "Notification service (optional)"
+      description: "E.g.: notify.mobile_app_my_phone"
+      default: "notify.notify"
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  # Trigger 1: Start time - turn on fountain
+  - platform: time
+    at: !input start_time
+    id: "scheduled_on"
+
+  # Trigger 2: End time - turn off fountain
+  - platform: time
+    at: !input end_time
+    id: "scheduled_off"
+
+  # Trigger 3: Home Assistant restart - check and adjust state
+  - platform: homeassistant
+    event: start
+    id: "ha_restart"
+
+variables:
+  fountain_entity: !input fountain_switch
+  heure_debut: !input start_time
+  heure_fin: !input end_time
+  notif_active: !input enable_notifications
+  notif_service: !input notification_service
+  
+  # Calculate if fountain should be ON based on current time
+  # Handles the case where end_time is before start_time (crosses midnight)
+  should_be_on: >
+    {% set now_time = now().strftime('%H:%M:%S') %}
+    {% set start = heure_debut %}
+    {% set end = heure_fin %}
+    {% if start < end %}
+      {# Normal case: 10:00 to 18:00 #}
+      {{ now_time >= start and now_time < end }}
+    {% else %}
+      {# Crosses midnight: 10:00 to 02:00 #}
+      {{ now_time >= start or now_time < end }}
+    {% endif %}
+
+condition: []
+
+action:
+  - choose:
+      # CASE 1: Scheduled ON trigger
+      - conditions:
+          - condition: trigger
+            id: "scheduled_on"
+        sequence:
+          # Turn on fountain
+          - action: switch.turn_on
+            target:
+              entity_id: !input fountain_switch
+
+          # Send notification
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "⛲ Fountain ON"
+                      message: >
+                        Fountain started at {{ heure_debut }}.
+                        Will stop at {{ heure_fin }}.
+            default: []
+
+      # CASE 2: Scheduled OFF trigger
+      - conditions:
+          - condition: trigger
+            id: "scheduled_off"
+        sequence:
+          # Turn off fountain
+          - action: switch.turn_off
+            target:
+              entity_id: !input fountain_switch
+
+          # Send notification
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "⛲ Fountain OFF"
+                      message: >
+                        Fountain stopped at {{ heure_fin }}.
+                        Will restart at {{ heure_debut }}.
+            default: []
+
+      # CASE 3: Home Assistant restart - synchronize state
+      - conditions:
+          - condition: trigger
+            id: "ha_restart"
+        sequence:
+          # Wait a bit for entities to be ready
+          - delay:
+              seconds: 5
+
+          # Check if fountain should be ON or OFF based on current time
+          - choose:
+              # Should be ON
+              - conditions:
+                  - condition: template
+                    value_template: "{{ should_be_on }}"
+                sequence:
+                  # Turn ON if not already ON
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not is_state(fountain_entity, 'on') }}"
+                        sequence:
+                          - action: switch.turn_on
+                            target:
+                              entity_id: !input fountain_switch
+
+                          # Send notification
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ notif_active }}"
+                                sequence:
+                                  - action: "{{ notif_service }}"
+                                    data:
+                                      title: "⛲ Fountain synchronized"
+                                      message: >
+                                        After HA restart: Fountain turned ON (should be active {{ heure_debut }} - {{ heure_fin }})
+                            default: []
+                    default: []
+
+            # Should be OFF
+            default:
+              # Turn OFF if not already OFF
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ not is_state(fountain_entity, 'off') }}"
+                    sequence:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: !input fountain_switch
+
+                      # Send notification
+                      - choose:
+                          - conditions:
+                              - condition: template
+                                value_template: "{{ notif_active }}"
+                            sequence:
+                              - action: "{{ notif_service }}"
+                                data:
+                                  title: "⛲ Fountain synchronized"
+                                  message: >
+                                    After HA restart: Fountain turned OFF (should be active {{ heure_debut }} - {{ heure_fin }})
+                        default: []
+                default: []
+
+    default: []
+
