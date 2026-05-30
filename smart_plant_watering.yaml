@@ -208,117 +208,155 @@ trigger:
 
 variables:
   # Inputs
-  temp_normale: !input temperature_normale
-  temp_canicule: !input temperature_canicule
-  duree_base: !input base_duration_minutes
-  duree_max: !input max_duration_minutes
-  duree_min: !input min_duration_minutes
-  seuil_annulation: !input rain_cancel_threshold
-  seuil_reduction: !input rain_reduction_threshold
-  notif_active: !input enable_notifications
+  normal_temp: !input temperature_normale
+  heatwave_temp: !input temperature_canicule
+  base_duration: !input base_duration_minutes
+  max_duration: !input max_duration_minutes
+  min_duration: !input min_duration_minutes
+  cancel_threshold: !input rain_cancel_threshold
+  reduction_threshold: !input rain_reduction_threshold
+  notif_enabled: !input enable_notifications
   notif_service: !input notification_service
-  weather_ent: !input weather_entity
+  weather_entity: !input weather_entity
   rain_sensor: !input rain_sensor_today
-  trigger_compteur: !input dry_days_counter
-  capteur_volume: !input water_volume_sensor
-  compteur_litres: !input cumulative_liters_counter
-  statut_helper: !input current_status
-  historique_helper: !input watering_history
+  dry_days_counter: !input dry_days_counter
+  volume_sensor: !input water_volume_sensor
+  liters_counter: !input cumulative_liters_counter
+  status_helper: !input current_status
+  history_helper: !input watering_history
 
   # Sensor values from weather entity attributes
-  temperature: "{{ state_attr(weather_ent, 'temperature') | float(25) }}"
-  humidite: "{{ state_attr(weather_ent, 'humidity') | float(50) }}"
-  vent: "{{ state_attr(weather_ent, 'wind_speed') | float(0) }}"
-  weather_condition: "{{ states(weather_ent) }}"
+  temperature: "{{ state_attr(weather_entity, 'temperature') | float(25) }}"
+  humidity: "{{ state_attr(weather_entity, 'humidity') | float(50) }}"
+  wind_speed: "{{ state_attr(weather_entity, 'wind_speed') | float(0) }}"
+  weather_condition: "{{ states(weather_entity) }}"
 
-  # Rain: use dedicated sensor if available, otherwise estimate from weather condition
-  pluie_jour: >
+  # Get forecast data for next 12 hours
+  forecast_data: "{{ state_attr(weather_entity, 'forecast') }}"
+  
+  # Calculate total precipitation from forecast for next 12 hours
+  forecast_rain_12h: >
+    {% set ns = namespace(total=0) %}
+    {% if forecast_data is not none and forecast_data is iterable %}
+      {% for f in forecast_data[:12] %}
+        {% if f.precipitation is defined %}
+          {% set ns.total = ns.total + (f.precipitation | float(0)) %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.total | round(1) }}
+
+  # Check conditions in next 6 forecast periods for rain indicators
+  forecast_rainy_periods: >
+    {% set rain_conditions = ['rainy', 'pouring', 'lightning-rainy', 'snowy-rainy'] %}
+    {% set ns = namespace(count=0) %}
+    {% if forecast_data is not none and forecast_data is iterable %}
+      {% for f in forecast_data[:6] %}
+        {% if f.condition is defined and f.condition in rain_conditions %}
+          {% set ns.count = ns.count + 1 %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.count }}
+
+  # Rain: use dedicated sensor if available, otherwise estimate from current + forecast
+  rain_today: >
     {% if rain_sensor != '' %}
       {{ states(rain_sensor) | float(0) }}
-    {% elif weather_condition in ['rainy', 'pouring'] %}
-      6
-    {% elif weather_condition in ['lightning-rainy'] %}
-      8
     {% else %}
-      0
+      {# Estimate based on current condition + forecast #}
+      {% set current_rain = 0 %}
+      {% if weather_condition in ['rainy', 'pouring'] %}
+        {% set current_rain = 3 %}
+      {% elif weather_condition in ['lightning-rainy'] %}
+        {% set current_rain = 5 %}
+      {% endif %}
+      {# Add forecasted rain for today #}
+      {% set total = current_rain + (forecast_rain_12h | float(0)) %}
+      {{ total | round(1) }}
     {% endif %}
 
-  # Rain forecast: check if weather condition suggests upcoming rain
-  # IRM KMI exposes forecast data - we use the current condition as proxy
-  prevision_pluie: >
-    {% if weather_condition in ['rainy', 'pouring', 'lightning-rainy'] %}
+  # Rain forecast: use real forecast data with precipitation amounts
+  rain_probability: >
+    {% set rain_forecast = forecast_rain_12h | float(0) %}
+    {% set rainy_conditions = forecast_rainy_periods | int(0) %}
+    {% if rain_forecast >= 5 or rainy_conditions >= 3 %}
       80
+    {% elif rain_forecast >= 2 or rainy_conditions >= 2 %}
+      60
+    {% elif rain_forecast >= 1 or rainy_conditions >= 1 %}
+      40
     {% elif weather_condition in ['partlycloudy', 'cloudy', 'fog'] %}
-      30
+      20
     {% else %}
       0
     {% endif %}
 
-  jours_sans_pluie: "{{ states(trigger_compteur) | float(0) }}"
+  dry_days: "{{ states(dry_days_counter) | float(0) }}"
 
   # --- WATERING COEFFICIENT CALCULATION ---
 
   # Temperature factor: +2% per degree above normal, -2% below
-  coef_temperature: >
-    {{ 1 + ((temperature - temp_normale) * 0.02) }}
+  temp_coef: >
+    {{ 1 + ((temperature - normal_temp) * 0.02) }}
 
   # Humidity factor: dry air = more watering, humid air = less
   # Reference 50%. Each 10% below = +10% watering
-  coef_humidite: >
-    {{ 1 + ((50 - humidite) * 0.01) }}
+  humidity_coef: >
+    {{ 1 + ((50 - humidity) * 0.01) }}
 
   # Wind factor: wind increases evaporation
   # +5% per 10 km/h
-  coef_vent: >
-    {{ 1 + (vent / 10 * 0.05) }}
+  wind_coef: >
+    {{ 1 + (wind_speed / 10 * 0.05) }}
 
   # Consecutive dry days factor: cumulative soil drying
   # +8% per consecutive day without significant rain
-  coef_jours_sans_pluie: >
-    {{ 1 + (jours_sans_pluie * 0.08) }}
+  dry_days_coef: >
+    {{ 1 + (dry_days * 0.08) }}
 
   # Rain factor: proportional reduction
-  coef_pluie: >
-    {% if pluie_jour >= seuil_annulation %}
+  rain_coef: >
+    {% if rain_today >= cancel_threshold %}
       0
-    {% elif pluie_jour >= seuil_reduction %}
-      {{ 1 - (pluie_jour / seuil_annulation) }}
+    {% elif rain_today >= reduction_threshold %}
+      {{ 1 - (rain_today / cancel_threshold) }}
     {% else %}
       1
     {% endif %}
 
   # Rain forecast factor (if probability > 70% or > 5mm forecasted, reduce)
-  coef_prevision: >
-    {% if prevision_pluie > 70 %}
+  forecast_coef: >
+    {% if rain_probability > 70 %}
       0.5
-    {% elif prevision_pluie > 40 %}
+    {% elif rain_probability > 40 %}
       0.75
     {% else %}
       1
     {% endif %}
 
   # Global coefficient
-  coef_global: >
-    {{ (coef_temperature * coef_humidite * coef_vent * coef_jours_sans_pluie * coef_pluie * coef_prevision) | round(2) }}
+  global_coef: >
+    {{ (temp_coef * humidity_coef * wind_coef * dry_days_coef * rain_coef * forecast_coef) | round(2) }}
 
   # Calculated duration
-  duree_calculee: >
-    {% set d = (duree_base * coef_global) | round(0) %}
-    {% if coef_pluie == 0 %}
+  calculated_duration: >
+    {% set d = (base_duration * global_coef) | round(0) %}
+    {% if rain_coef == 0 %}
       0
-    {% elif d > duree_max %}
-      {{ duree_max }}
-    {% elif d < duree_min %}
-      {{ duree_min }}
+    {% elif d > max_duration %}
+      {{ max_duration }}
+    {% elif d < min_duration %}
+      {{ min_duration }}
     {% else %}
       {{ d }}
     {% endif %}
 
   # For summary
-  arrosage_annule: "{{ duree_calculee | int == 0 }}"
-  raison_annulation: >
-    {% if pluie_jour >= seuil_annulation %}
-      Sufficient rain today ({{ pluie_jour }}mm)
+  watering_cancelled: "{{ calculated_duration | int == 0 }}"
+  cancel_reason: >
+    {% if rain_today >= cancel_threshold %}
+      Sufficient rain today ({{ rain_today }}mm)
     {% else %}
       Normal conditions
     {% endif %}
@@ -330,7 +368,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ pluie_jour | float(0) >= seuil_reduction }}"
+            value_template: "{{ rain_today | float(0) >= reduction_threshold }}"
         sequence:
           - action: input_number.set_value
             target:
@@ -347,73 +385,74 @@ action:
       # CASE 1: Watering cancelled (too much rain)
       - conditions:
           - condition: template
-            value_template: "{{ arrosage_annule }}"
+            value_template: "{{ watering_cancelled }}"
         sequence:
           # Update status
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ statut_helper != '' }}"
+                    value_template: "{{ status_helper != '' }}"
                 sequence:
                   - action: input_text.set_value
                     target:
-                      entity_id: "{{ statut_helper }}"
+                      entity_id: "{{ status_helper }}"
                     data:
-                      value: "❌ Cancelled: {{ raison_annulation }} ({{ now().strftime('%d/%m %H:%M') }})"
+                      value: "❌ Cancelled: {{ cancel_reason }} ({{ now().strftime('%d/%m %H:%M') }})"
             default: []
 
           # Send notification
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ notif_active }}"
+                    value_template: "{{ notif_enabled }}"
                 sequence:
                   - action: "{{ notif_service }}"
                     data:
                       title: "🌧️ Watering cancelled"
                       message: >
-                        Watering cancelled: {{ raison_annulation }}.
-                        Temperature: {{ temperature }}°C | Humidity: {{ humidite }}%
-                        Rain: {{ pluie_jour }}mm | Condition: {{ weather_condition }}
+                        Watering cancelled: {{ cancel_reason }}.
+                        Temperature: {{ temperature }}°C | Humidity: {{ humidity }}%
+                        Rain today: {{ rain_today }}mm | Forecasted (12h): {{ forecast_rain_12h }}mm
+                        Condition: {{ weather_condition }}
             default: []
 
     # CASE 2: Adaptive watering
     default:
       # Capture volume before watering
       - variables:
-          volume_avant: "{{ states(capteur_volume) | float(0) }}"
+          volume_before: "{{ states(volume_sensor) | float(0) }}"
 
       # Update status: in progress
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ statut_helper != '' }}"
+                value_template: "{{ status_helper != '' }}"
             sequence:
               - action: input_text.set_value
                 target:
-                  entity_id: "{{ statut_helper }}"
+                  entity_id: "{{ status_helper }}"
                 data:
-                  value: "🚿 In progress: {{ duree_calculee }}min ({{ now().strftime('%d/%m %H:%M') }})"
+                  value: "🚿 In progress: {{ calculated_duration }}min ({{ now().strftime('%d/%m %H:%M') }})"
         default: []
 
       # Start notification
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ notif_active }}"
+                value_template: "{{ notif_enabled }}"
             sequence:
               - action: "{{ notif_service }}"
                 data:
                   title: "🌱 Smart watering started"
                   message: >
-                    Duration: {{ duree_calculee }} min (base {{ duree_base }} min × coef {{ coef_global }})
+                    Duration: {{ calculated_duration }} min (base {{ base_duration }} min × coef {{ global_coef }})
                     📊 Details:
-                    🌡️ Temp: {{ temperature }}°C (coef {{ coef_temperature | round(2) }})
-                    💧 Humidity: {{ humidite }}% (coef {{ coef_humidite | round(2) }})
-                    🌬️ Wind: {{ vent }} km/h (coef {{ coef_vent | round(2) }})
-                    ☀️ Dry days: {{ jours_sans_pluie }} (coef {{ coef_jours_sans_pluie | round(2) }})
-                    🌧️ Rain: {{ pluie_jour }}mm (coef {{ coef_pluie | round(2) }})
-                    🔮 Forecast: {{ prevision_pluie }}% (coef {{ coef_prevision }})
+                    🌡️ Temp: {{ temperature }}°C (coef {{ temp_coef | round(2) }})
+                    💧 Humidity: {{ humidity }}% (coef {{ humidity_coef | round(2) }})
+                    🌬️ Wind: {{ wind_speed }} km/h (coef {{ wind_coef | round(2) }})
+                    ☀️ Dry days: {{ dry_days }} (coef {{ dry_days_coef | round(2) }})
+                    🌧️ Rain today: {{ rain_today }}mm | Forecasted: {{ forecast_rain_12h }}mm (coef {{ rain_coef | round(2) }})
+                    🔮 Forecast probability: {{ rain_probability }}% (coef {{ forecast_coef }})
                     ⛅ Condition: {{ weather_condition }}
         default: []
 
@@ -424,7 +463,7 @@ action:
 
       # Wait for calculated duration
       - delay:
-          minutes: "{{ duree_calculee | int }}"
+          minutes: "{{ calculated_duration | int }}"
 
       # Turn off watering
       - action: switch.turn_off
@@ -437,35 +476,35 @@ action:
 
       # Capture volume after watering and calculate delta
       - variables:
-          volume_apres: "{{ states(capteur_volume) | float(0) }}"
-          litres_session: "{{ (volume_apres - volume_avant) | round(1) }}"
-          summary_line: "{{ now().strftime('%d/%m') }}: {{ duree_calculee }}min, {{ litres_session }}L, {{ temperature }}°C"
+          volume_after: "{{ states(volume_sensor) | float(0) }}"
+          session_liters: "{{ (volume_after - volume_before) | round(1) }}"
+          summary_line: "{{ now().strftime('%d/%m') }}: {{ calculated_duration }}min, {{ session_liters }}L, {{ temperature }}°C"
 
       # Update status: completed
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ statut_helper != '' }}"
+                value_template: "{{ status_helper != '' }}"
             sequence:
               - action: input_text.set_value
                 target:
-                  entity_id: "{{ statut_helper }}"
+                  entity_id: "{{ status_helper }}"
                 data:
-                  value: "✅ Completed: {{ litres_session }}L in {{ duree_calculee }}min ({{ now().strftime('%d/%m %H:%M') }})"
+                  value: "✅ Completed: {{ session_liters }}L in {{ calculated_duration }}min ({{ now().strftime('%d/%m %H:%M') }})"
         default: []
 
       # Update history (keep last 5 sessions)
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ historique_helper != '' }}"
+                value_template: "{{ history_helper != '' }}"
             sequence:
               - action: input_text.set_value
                 target:
-                  entity_id: "{{ historique_helper }}"
+                  entity_id: "{{ history_helper }}"
                 data:
                   value: >
-                    {% set old = states(historique_helper) %}
+                    {% set old = states(history_helper) %}
                     {% if old == 'unknown' or old == '' %}
                       {{ summary_line }}
                     {% else %}
@@ -479,14 +518,14 @@ action:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ notif_active }}"
+                value_template: "{{ notif_enabled }}"
             sequence:
               - action: "{{ notif_service }}"
                 data:
                   title: "✅ Watering complete"
                   message: >
-                    Watering finished after {{ duree_calculee }} minutes.
-                    💦 Water used: {{ litres_session }} L (measured by SWV)
+                    Watering finished after {{ calculated_duration }} minutes.
+                    💦 Water used: {{ session_liters }} L (measured by SWV)
                     Next watering tomorrow.
         default: []
 
@@ -494,12 +533,12 @@ action:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ compteur_litres != '' }}"
+                value_template: "{{ liters_counter != '' }}"
             sequence:
               - action: input_number.set_value
                 target:
-                  entity_id: "{{ compteur_litres }}"
+                  entity_id: "{{ liters_counter }}"
                 data:
-                  value: "{{ (states(compteur_litres) | float(0) + litres_session | float(0)) | round(1) }}"
+                  value: "{{ (states(liters_counter) | float(0) + session_liters | float(0)) | round(1) }}"
         default: []
 
