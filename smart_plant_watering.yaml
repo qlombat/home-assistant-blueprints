@@ -230,140 +230,150 @@ variables:
   humidity: "{{ state_attr(weather_entity, 'humidity') | float(50) }}"
   wind_speed: "{{ state_attr(weather_entity, 'wind_speed') | float(0) }}"
   weather_condition: "{{ states(weather_entity) }}"
-
-  # Get forecast data for next 12 hours
-  forecast_data: "{{ state_attr(weather_entity, 'forecast') }}"
   
-  # Calculate total precipitation from forecast for next 12 hours
-  forecast_rain_12h: >
-    {% set ns = namespace(total=0) %}
-    {% if forecast_data is not none and forecast_data is iterable %}
-      {% for f in forecast_data[:12] %}
-        {% if f.precipitation is defined %}
-          {% set ns.total = ns.total + (f.precipitation | float(0)) %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-    {{ ns.total | round(1) }}
-
-  # Check conditions in next 6 forecast periods for rain indicators
-  forecast_rainy_periods: >
-    {% set rain_conditions = ['rainy', 'pouring', 'lightning-rainy', 'snowy-rainy'] %}
-    {% set ns = namespace(count=0) %}
-    {% if forecast_data is not none and forecast_data is iterable %}
-      {% for f in forecast_data[:6] %}
-        {% if f.condition is defined and f.condition in rain_conditions %}
-          {% set ns.count = ns.count + 1 %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-    {{ ns.count }}
-
-  # Rain: use dedicated sensor if available, otherwise estimate from current + forecast
-  rain_today: >
-    {% if rain_sensor != '' %}
-      {{ states(rain_sensor) | float(0) }}
-    {% else %}
-      {# Estimate based on current condition + forecast #}
-      {% set current_rain = 0 %}
-      {% if weather_condition in ['rainy', 'pouring'] %}
-        {% set current_rain = 3 %}
-      {% elif weather_condition in ['lightning-rainy'] %}
-        {% set current_rain = 5 %}
-      {% endif %}
-      {# Add forecasted rain for today #}
-      {% set total = current_rain + (forecast_rain_12h | float(0)) %}
-      {{ total | round(1) }}
-    {% endif %}
-
-  # Rain forecast: use real forecast data with precipitation amounts
-  rain_probability: >
-    {% set rain_forecast = forecast_rain_12h | float(0) %}
-    {% set rainy_conditions = forecast_rainy_periods | int(0) %}
-    {% if rain_forecast >= 5 or rainy_conditions >= 3 %}
-      80
-    {% elif rain_forecast >= 2 or rainy_conditions >= 2 %}
-      60
-    {% elif rain_forecast >= 1 or rainy_conditions >= 1 %}
-      40
-    {% elif weather_condition in ['partlycloudy', 'cloudy', 'fog'] %}
-      20
-    {% else %}
-      0
-    {% endif %}
-
   dry_days: "{{ states(dry_days_counter) | float(0) }}"
-
-  # --- WATERING COEFFICIENT CALCULATION ---
-
-  # Temperature factor: +2% per degree above normal, -2% below
-  temp_coef: >
-    {{ 1 + ((temperature - normal_temp) * 0.02) }}
-
-  # Humidity factor: dry air = more watering, humid air = less
-  # Reference 50%. Each 10% below = +10% watering
-  humidity_coef: >
-    {{ 1 + ((50 - humidity) * 0.01) }}
-
-  # Wind factor: wind increases evaporation
-  # +5% per 10 km/h
-  wind_coef: >
-    {{ 1 + (wind_speed / 10 * 0.05) }}
-
-  # Consecutive dry days factor: cumulative soil drying
-  # +8% per consecutive day without significant rain
-  dry_days_coef: >
-    {{ 1 + (dry_days * 0.08) }}
-
-  # Rain factor: proportional reduction
-  rain_coef: >
-    {% if rain_today >= cancel_threshold %}
-      0
-    {% elif rain_today >= reduction_threshold %}
-      {{ 1 - (rain_today / cancel_threshold) }}
-    {% else %}
-      1
-    {% endif %}
-
-  # Rain forecast factor (if probability > 70% or > 5mm forecasted, reduce)
-  forecast_coef: >
-    {% if rain_probability > 70 %}
-      0.5
-    {% elif rain_probability > 40 %}
-      0.75
-    {% else %}
-      1
-    {% endif %}
-
-  # Global coefficient
-  global_coef: >
-    {{ (temp_coef * humidity_coef * wind_coef * dry_days_coef * rain_coef * forecast_coef) | round(2) }}
-
-  # Calculated duration
-  calculated_duration: >
-    {% set d = (base_duration * global_coef) | round(0) %}
-    {% if rain_coef == 0 %}
-      0
-    {% elif d > max_duration %}
-      {{ max_duration }}
-    {% elif d < min_duration %}
-      {{ min_duration }}
-    {% else %}
-      {{ d }}
-    {% endif %}
-
-  # For summary
-  watering_cancelled: "{{ calculated_duration | int == 0 }}"
-  cancel_reason: >
-    {% if rain_today >= cancel_threshold %}
-      Sufficient rain today ({{ rain_today }}mm)
-    {% else %}
-      Normal conditions
-    {% endif %}
 
 condition: []
 
 action:
+  # --- Get weather forecast data (HA 2023.9+) ---
+  - action: weather.get_forecasts
+    data:
+      type: hourly
+    target:
+      entity_id: !input weather_entity
+    response_variable: forecast_response
+
+  # Calculate forecast variables from response
+  - variables:
+      # Extract forecast list from response
+      forecast_data: "{{ forecast_response[weather_entity].forecast }}"
+      
+      # Calculate total precipitation from forecast for next 12 hours
+      forecast_rain_12h: >
+        {% set ns = namespace(total=0) %}
+        {% if forecast_data is not none and forecast_data is iterable %}
+          {% for f in forecast_data[:12] %}
+            {% if f.precipitation is defined %}
+              {% set ns.total = ns.total + (f.precipitation | float(0)) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.total | round(1) }}
+      
+      # Check conditions in next 6 forecast periods for rain indicators
+      forecast_rainy_periods: >
+        {% set rain_conditions = ['rainy', 'pouring', 'lightning-rainy', 'snowy-rainy'] %}
+        {% set ns = namespace(count=0) %}
+        {% if forecast_data is not none and forecast_data is iterable %}
+          {% for f in forecast_data[:6] %}
+            {% if f.condition is defined and f.condition in rain_conditions %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.count }}
+      
+      # Rain: use dedicated sensor if available, otherwise estimate from current + forecast
+      rain_today: >
+        {% if rain_sensor != '' %}
+          {{ states(rain_sensor) | float(0) }}
+        {% else %}
+          {# Estimate based on current condition + forecast #}
+          {% set current_rain = 0 %}
+          {% if weather_condition in ['rainy', 'pouring'] %}
+            {% set current_rain = 3 %}
+          {% elif weather_condition in ['lightning-rainy'] %}
+            {% set current_rain = 5 %}
+          {% endif %}
+          {# Add forecasted rain for today #}
+          {% set total = current_rain + (forecast_rain_12h | float(0)) %}
+          {{ total | round(1) }}
+        {% endif %}
+      
+      # Rain forecast: use real forecast data with precipitation amounts
+      rain_probability: >
+        {% set rain_forecast = forecast_rain_12h | float(0) %}
+        {% set rainy_conditions = forecast_rainy_periods | int(0) %}
+        {% if rain_forecast >= 5 or rainy_conditions >= 3 %}
+          80
+        {% elif rain_forecast >= 2 or rainy_conditions >= 2 %}
+          60
+        {% elif rain_forecast >= 1 or rainy_conditions >= 1 %}
+          40
+        {% elif weather_condition in ['partlycloudy', 'cloudy', 'fog'] %}
+          20
+        {% else %}
+          0
+        {% endif %}
+      
+      # --- WATERING COEFFICIENT CALCULATION ---
+      
+      # Temperature factor: +2% per degree above normal, -2% below
+      temp_coef: >
+        {{ 1 + ((temperature - normal_temp) * 0.02) }}
+      
+      # Humidity factor: dry air = more watering, humid air = less
+      # Reference 50%. Each 10% below = +10% watering
+      humidity_coef: >
+        {{ 1 + ((50 - humidity) * 0.01) }}
+      
+      # Wind factor: wind increases evaporation
+      # +5% per 10 km/h
+      wind_coef: >
+        {{ 1 + (wind_speed / 10 * 0.05) }}
+      
+      # Consecutive dry days factor: cumulative soil drying
+      # +8% per consecutive day without significant rain
+      dry_days_coef: >
+        {{ 1 + (dry_days * 0.08) }}
+      
+      # Rain factor: proportional reduction
+      rain_coef: >
+        {% if rain_today >= cancel_threshold %}
+          0
+        {% elif rain_today >= reduction_threshold %}
+          {{ 1 - (rain_today / cancel_threshold) }}
+        {% else %}
+          1
+        {% endif %}
+      
+      # Rain forecast factor (if probability > 70% or > 5mm forecasted, reduce)
+      forecast_coef: >
+        {% if rain_probability > 70 %}
+          0.5
+        {% elif rain_probability > 40 %}
+          0.75
+        {% else %}
+          1
+        {% endif %}
+      
+      # Global coefficient
+      global_coef: >
+        {{ (temp_coef * humidity_coef * wind_coef * dry_days_coef * rain_coef * forecast_coef) | round(2) }}
+      
+      # Calculated duration
+      calculated_duration: >
+        {% set d = (base_duration * global_coef) | round(0) %}
+        {% if rain_coef == 0 %}
+          0
+        {% elif d > max_duration %}
+          {{ max_duration }}
+        {% elif d < min_duration %}
+          {{ min_duration }}
+        {% else %}
+          {{ d }}
+        {% endif %}
+      
+      # For summary
+      watering_cancelled: "{{ calculated_duration | int == 0 }}"
+      cancel_reason: >
+        {% if rain_today >= cancel_threshold %}
+          Sufficient rain today ({{ rain_today }}mm)
+        {% else %}
+          Normal conditions
+        {% endif %}
+
   # --- Update consecutive dry days counter ---
   - choose:
       - conditions:
