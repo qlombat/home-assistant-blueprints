@@ -282,21 +282,21 @@ action:
         {% endif %}
         {{ ns.count }}
       
-      # Rain: use dedicated sensor if available, otherwise estimate from current + forecast
+      # Rain today: use dedicated sensor if available, otherwise estimate from current condition only
       rain_today: >
         {% if rain_sensor != '' %}
           {{ states(rain_sensor) | float(0) }}
         {% else %}
-          {# Estimate based on current condition + forecast #}
+          {# Without sensor: estimate based ONLY on current weather condition (not forecast) #}
           {% set current_rain = 0 %}
-          {% if weather_condition in ['rainy', 'pouring'] %}
-            {% set current_rain = 3 %}
-          {% elif weather_condition in ['lightning-rainy'] %}
+          {% if weather_condition in ['pouring', 'lightning-rainy'] %}
             {% set current_rain = 5 %}
+          {% elif weather_condition in ['rainy'] %}
+            {% set current_rain = 2 %}
+          {% elif weather_condition in ['snowy-rainy'] %}
+            {% set current_rain = 1 %}
           {% endif %}
-          {# Add forecasted rain for today #}
-          {% set total = current_rain + (forecast_rain_12h | float(0)) %}
-          {{ total | round(1) }}
+          {{ current_rain | round(1) }}
         {% endif %}
       
       # Rain forecast: use real forecast data with precipitation amounts
