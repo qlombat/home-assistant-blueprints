@@ -192,6 +192,13 @@ blueprint:
       selector:
         boolean: {}
 
+    enable_persistent_notifications:
+      name: "Enable persistent notifications"
+      description: "Show persistent notifications in Home Assistant UI (notifications panel)"
+      default: true
+      selector:
+        boolean: {}
+
     notification_service:
       name: "Notification service"
       description: "E.g.: notify.mobile_app_my_phone"
@@ -216,6 +223,7 @@ variables:
   cancel_threshold: !input rain_cancel_threshold
   reduction_threshold: !input rain_reduction_threshold
   notif_enabled: !input enable_notifications
+  persistent_notif_enabled: !input enable_persistent_notifications
   notif_service: !input notification_service
   weather_entity: !input weather_entity
   rain_sensor: !input rain_sensor_today
@@ -426,6 +434,29 @@ action:
                         Condition: {{ weather_condition }}
             default: []
 
+          # Persistent notification for Home Assistant UI
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ persistent_notif_enabled }}"
+                sequence:
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: "smart_watering_status"
+                      title: "🌧️ Arrosage annulé"
+                      message: >
+                        **Arrosage annulé:** {{ cancel_reason }}
+                        
+                        📊 **Conditions actuelles:**
+                        - 🌡️ Température: {{ temperature }}°C
+                        - 💧 Humidité: {{ humidity }}%
+                        - 🌧️ Pluie aujourd'hui: {{ rain_today }}mm
+                        - 🔮 Prévision (12h): {{ forecast_rain_12h }}mm
+                        - ⛅ Condition: {{ weather_condition }}
+                        
+                        ⏰ {{ now().strftime('%d/%m/%Y à %H:%M') }}
+            default: []
+
     # CASE 2: Adaptive watering
     default:
       # Capture volume before watering
@@ -464,6 +495,32 @@ action:
                     🌧️ Rain today: {{ rain_today }}mm | Forecasted: {{ forecast_rain_12h }}mm (coef {{ rain_coef | round(2) }})
                     🔮 Forecast probability: {{ rain_probability }}% (coef {{ forecast_coef }})
                     ⛅ Condition: {{ weather_condition }}
+        default: []
+
+      # Persistent notification for Home Assistant UI
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ persistent_notif_enabled }}"
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "smart_watering_status"
+                  title: "🌱 Arrosage intelligent en cours"
+                  message: >
+                    ⏱️ **Durée:** {{ calculated_duration }} min (base {{ base_duration }} min × coef {{ global_coef }})
+                    
+                    📊 **Détails des coefficients:**
+                    - 🌡️ Température: {{ temperature }}°C → coef {{ temp_coef | round(2) }}
+                    - 💧 Humidité: {{ humidity }}% → coef {{ humidity_coef | round(2) }}
+                    - 🌬️ Vent: {{ wind_speed }} km/h → coef {{ wind_coef | round(2) }}
+                    - ☀️ Jours secs: {{ dry_days }} → coef {{ dry_days_coef | round(2) }}
+                    - 🌧️ Pluie: {{ rain_today }}mm → coef {{ rain_coef | round(2) }}
+                    - 🔮 Prévision: {{ rain_probability }}% → coef {{ forecast_coef }}
+                    
+                    ⛅ **Condition:** {{ weather_condition }}
+                    
+                    🚿 Démarré à {{ now().strftime('%H:%M') }}
         default: []
 
       # Turn on watering
@@ -537,6 +594,33 @@ action:
                     Watering finished after {{ calculated_duration }} minutes.
                     💦 Water used: {{ session_liters }} L (measured by SWV)
                     Next watering tomorrow.
+        default: []
+
+      # Persistent notification for Home Assistant UI
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ persistent_notif_enabled }}"
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "smart_watering_status"
+                  title: "✅ Arrosage terminé"
+                  message: >
+                    ⏱️ **Durée:** {{ calculated_duration }} minutes
+                    💦 **Eau utilisée:** {{ session_liters }} L (mesuré par SWV)
+                    
+                    📊 **Conditions:**
+                    - 🌡️ Température: {{ temperature }}°C
+                    - 💧 Humidité: {{ humidity }}%
+                    - 🌬️ Vent: {{ wind_speed }} km/h
+                    - ☀️ Jours secs consécutifs: {{ dry_days }}
+                    - 🌧️ Pluie aujourd'hui: {{ rain_today }}mm
+                    
+                    🔮 **Coefficient appliqué:** {{ global_coef }}
+                    ⏰ Terminé à {{ now().strftime('%H:%M') }}
+                    
+                    ⏭️ Prochain arrosage demain
         default: []
 
       # Update cumulative liters counter if configured
