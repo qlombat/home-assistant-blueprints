@@ -1,38 +1,114 @@
 blueprint:
-  name: "Smart Fountain Schedule"
+  name: "Smart Fountain / Multi-Zone Schedule"
   description: >
-    Automatic fountain control via smart plug with schedule management.
-    Turns on the fountain at a configured start time (default 10:00)
-    and turns it off at a configured end time (default 02:00 next day).
-    
-    Handles Home Assistant restarts gracefully by checking current time
-    and adjusting the fountain state accordingly.
+    Smart-plug / valve scheduler with TWO operating modes in a single
+    blueprint:
+
+    ───────── MODE 1 — SIMPLE SCHEDULE (original fountain behaviour) ─────────
+
+    Turns the selected switch(es) ON at a start time and OFF at an end time
+    (schedule may cross midnight). Re-synchronizes state after a Home
+    Assistant restart. Works with ONE switch (classic fountain) or
+    SEVERAL switches at once (they all follow the same on/off window).
+    This is the default mode and is 100% backward compatible.
+
+    ───────── MODE 2 — ADAPTIVE SEQUENTIAL WATERING (multi-zone) ─────────
+
+    Designed for multi-zone irrigation when your water supply cannot feed
+    several valves at once. Zones run ONE AT A TIME, in the order selected,
+    each for a duration computed from weather data:
+
+      duration = base × coef_temp × coef_humidity × coef_wind
+                      × coef_dry_days × coef_rain × coef_forecast
+
+    Features: rain/heat adaptation, auto-cancellation when it rained
+    enough, consecutive dry-days counter, per-zone + total water tracking,
+    cumulative liters, real-time status, compact history and rich
+    notifications. On HA restart, all valves are forced OFF (an interrupted
+    sequence cannot be safely resumed).
+
+    ───────── COEFFICIENTS (adaptive mode) ─────────
+
+    🌡️  +2% per °C above normal temperature, -2% below
+    💧  +1% per % below 50% humidity (capped at 50%)
+    🌬️  +5% per 10 km/h of wind
+    ☀️  +8% per consecutive dry day
+    🌧️  Cancel if rain ≥ rain_cancel_threshold, partial reduction if ≥ rain_reduction_threshold
+    🔮  -50% if rain probability > 70% in forecast, -25% if > 40%
+
+    ───────── RAIN INPUT FLEXIBILITY (adaptive mode) ─────────
+
+    The blueprint reads the rain value AS-IS from the sensor you provide —
+    it does NOT compute a time window itself. The meaning (today / last 12h
+    / last 24h…) depends on the sensor you pick. For a 12 h sliding window
+    (like Smart Plant Watering v6), create a Statistics sensor:
+
+      sensor:
+        - platform: statistics
+          name: "Rain last 12h"
+          unique_id: rain_last_12h
+          entity_id: sensor.your_cumulative_rain_in_mm
+          state_characteristic: change
+          max_age:
+            hours: 12
+
+    Then select sensor.rain_last_12h and set rain_period_label to "last 12h".
   domain: automation
+  source_url: https://github.com/lombat/home-assistant-blueprints
+
   input:
+    # ════════════ CORE (original fountain inputs, kept) ════════════
     fountain_switch:
-      name: "Fountain Smart Plug"
-      description: "The smart plug/switch entity that controls the fountain"
+      name: "Fountain / zone switches"
+      description: >
+        The smart plug(s) / valve(s) to control.
+        • Pick ONE for a classic single fountain.
+        • Pick SEVERAL for multi-zone.
+        In 'Adaptive sequential watering' mode, ORDER MATTERS: zones run in
+        the order you select them here.
       selector:
         entity:
           domain: switch
+          multiple: true
+
+    operating_mode:
+      name: "Operating mode"
+      description: >
+        • Simple schedule = original fountain behaviour (all switches ON at
+          start time, OFF at end time).
+        • Adaptive sequential watering = multi-zone irrigation, one valve at
+          a time, weather-based durations (end time is then ignored).
+      default: "simple_schedule"
+      selector:
+        select:
+          mode: dropdown
+          options:
+            - label: "Simple schedule — ON at start, OFF at end (supports multiple)"
+              value: "simple_schedule"
+            - label: "Adaptive sequential watering — one zone at a time, weather-based"
+              value: "adaptive_sequential"
 
     start_time:
       name: "Start time"
-      description: "Time to turn on the fountain (default 10:00)"
+      description: >
+        Time to turn ON (simple mode) or to START the watering cycle
+        (adaptive mode). Default 10:00.
       default: "10:00:00"
       selector:
         time: {}
 
     end_time:
       name: "End time"
-      description: "Time to turn off the fountain (default 02:00 - next day)"
+      description: >
+        Time to turn OFF (simple mode only — IGNORED in adaptive mode).
+        Default 02:00 (next day). May be earlier than start time.
       default: "02:00:00"
       selector:
         time: {}
 
     enable_notifications:
       name: "Enable notifications"
-      description: "Send notifications when fountain state changes"
+      description: "Send notifications when the state changes"
       default: false
       selector:
         boolean: {}
@@ -44,33 +120,257 @@ blueprint:
       selector:
         text: {}
 
+    # ════════════ ADAPTIVE MODE — WATER SENSORS ════════════
+    zones_water_sensors:
+      name: "[Adaptive] Water consumption sensors per zone (optional)"
+      description: >
+        ONE sensor per zone, in the SAME ORDER as the switches above
+        (e.g. sensor.vanne_pelouse_water_consumed for SONOFF SWV).
+        Per-zone tracking is enabled only if this list has the SAME length
+        as the switches list. Leave empty to disable measurement.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: true
+
+    # ════════════ ADAPTIVE MODE — WEATHER ════════════
+    weather_entity:
+      name: "[Adaptive] Weather entity"
+      description: >
+        Weather integration exposing temperature, humidity, wind_speed and a
+        daily forecast (e.g. weather.irm_kmi_home).
+        Required for adaptive mode. Leave empty in simple mode.
+      default: ""
+      selector:
+        entity:
+          domain: weather
+
+    rain_sensor:
+      name: "[Adaptive] Rain sensor (optional) — any time window"
+      description: >
+        Sensor giving the cumulative rain in mm over a recent period.
+        Read AS-IS — pick a sensor matching the window you want
+        (rain today, Statistics 12h, etc.). See the blueprint description
+        for a ready-to-paste 12h example. Leave empty to disable rain logic.
+      default: ""
+      selector:
+        text: {}
+
+    rain_period_label:
+      name: "[Adaptive] Rain period label (notifications)"
+      description: >
+        Cosmetic label describing the period covered by your rain sensor.
+        Examples: "today", "last 12h", "last 24h".
+      default: "today"
+      selector:
+        text: {}
+
+    # ════════════ ADAPTIVE MODE — THRESHOLDS ════════════
+    temperature_normal:
+      name: "[Adaptive] Normal temperature reference (°C)"
+      description: "Baseline temperature. Above this, watering is increased."
+      default: 22
+      selector:
+        number:
+          min: 5
+          max: 35
+          step: 1
+          unit_of_measurement: "°C"
+          mode: slider
+
+    heatwave_threshold:
+      name: "[Adaptive] Heatwave threshold (°C)"
+      description: "Above this, the cycle is labelled 'heatwave' in notifications."
+      default: 30
+      selector:
+        number:
+          min: 25
+          max: 45
+          step: 1
+          unit_of_measurement: "°C"
+          mode: slider
+
+    rain_cancel_threshold:
+      name: "[Adaptive] Rain cancellation threshold (mm)"
+      description: "If recent rain is ≥ this value, the cycle is CANCELLED."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          step: 0.5
+          unit_of_measurement: "mm"
+          mode: slider
+
+    rain_reduction_threshold:
+      name: "[Adaptive] Rain reduction threshold (mm)"
+      description: >
+        Between this value and the cancellation threshold, the cycle is
+        REDUCED proportionally. Below it, rain has no impact.
+        Also used to reset the dry-days counter.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 20
+          step: 0.5
+          unit_of_measurement: "mm"
+          mode: slider
+
+    # ════════════ ADAPTIVE MODE — DURATIONS ════════════
+    base_duration_per_zone_minutes:
+      name: "[Adaptive] Base duration per zone (minutes)"
+      description: "Reference run-time per zone before coefficients. Typically 10–20 min."
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 120
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    max_total_duration_minutes:
+      name: "[Adaptive] Max TOTAL cycle duration (minutes) — safety cap"
+      description: >
+        Upper bound on the whole cycle (sum of all zones). If exceeded,
+        each zone duration is shortened proportionally.
+      default: 120
+      selector:
+        number:
+          min: 5
+          max: 480
+          step: 5
+          unit_of_measurement: "min"
+          mode: slider
+
+    min_duration_per_zone_minutes:
+      name: "[Adaptive] Minimum duration per zone (minutes)"
+      description: >
+        Below this value (after coefficients), the WHOLE cycle is cancelled
+        — too short to be useful.
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 30
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    pause_between_zones_seconds:
+      name: "[Adaptive] Pause between zones (seconds)"
+      description: "Delay between closing one valve and opening the next."
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: "s"
+          mode: slider
+
+    sensor_settle_delay:
+      name: "[Adaptive] Sensor settle delay (seconds)"
+      description: "Delay after closing a valve before reading its water sensor."
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: "s"
+          mode: slider
+
+    # ════════════ ADAPTIVE MODE — HELPERS ════════════
+    dry_days_counter:
+      name: "[Adaptive] Dry-days counter — input_number"
+      description: >
+        input_number helper counting consecutive days without meaningful
+        rain (reset to 0 on rainy days, +1 otherwise). Required for adaptive
+        mode. Example: input_number.smart_watering_dry_days. Leave empty in
+        simple mode.
+      default: ""
+      selector:
+        entity:
+          domain: input_number
+
+    cumulative_liters_counter:
+      name: "[Adaptive] Cumulative liters counter — input_number (optional)"
+      description: >
+        Optional input_number to keep a running total of all water used
+        (e.g. input_number.smart_watering_total_liters). Leave empty to disable.
+      default: ""
+      selector:
+        text: {}
+
+    current_status:
+      name: "[Adaptive] Current status — input_text (optional)"
+      description: >
+        Optional input_text for the real-time status string
+        (e.g. input_text.smart_watering_status). Max 255 chars.
+      default: ""
+      selector:
+        text: {}
+
+    watering_history:
+      name: "[Adaptive] Watering history — input_text (optional)"
+      description: >
+        Optional input_text for the compact history of the last 5 sessions
+        (e.g. input_text.smart_watering_history). Max 255 chars.
+      default: ""
+      selector:
+        text: {}
+
 mode: single
 max_exceeded: silent
 
 trigger:
-  # Trigger 1: Start time - turn on fountain
+  # Trigger 1: Start time — turn ON (simple) / start cycle (adaptive)
   - platform: time
     at: !input start_time
     id: "scheduled_on"
 
-  # Trigger 2: End time - turn off fountain
+  # Trigger 2: End time — turn OFF (simple mode only)
   - platform: time
     at: !input end_time
     id: "scheduled_off"
 
-  # Trigger 3: Home Assistant restart - check and adjust state
+  # Trigger 3: Home Assistant restart — sync (simple) / safety-off (adaptive)
   - platform: homeassistant
     event: start
     id: "ha_restart"
 
 variables:
+  # ──── Core (original names preserved) ────
   fountain_entity: !input fountain_switch
+  op_mode: !input operating_mode
   heure_debut: !input start_time
   heure_fin: !input end_time
   notif_active: !input enable_notifications
   notif_service: !input notification_service
-  
-  # Calculate if fountain should be ON based on current time
+
+  # ──── Adaptive inputs ────
+  water_sensors: !input zones_water_sensors
+  weather_e: !input weather_entity
+  rain_sensor: !input rain_sensor
+  rain_label: !input rain_period_label
+  temp_normal: !input temperature_normal
+  heatwave_th: !input heatwave_threshold
+  rain_cancel_th: !input rain_cancel_threshold
+  rain_reduce_th: !input rain_reduction_threshold
+  base_dur_min: !input base_duration_per_zone_minutes
+  max_total_min: !input max_total_duration_minutes
+  min_dur_min: !input min_duration_per_zone_minutes
+  pause_s: !input pause_between_zones_seconds
+  settle_s: !input sensor_settle_delay
+  dry_days_helper: !input dry_days_counter
+  cumul_counter: !input cumulative_liters_counter
+  status_helper: !input current_status
+  history_helper: !input watering_history
+
+  # ──── Simple-mode: should the switches be ON right now? ────
   # Handles the case where end_time is before start_time (crosses midnight)
   should_be_on: >
     {% set now_time = now().strftime('%H:%M:%S') %}
@@ -84,85 +384,215 @@ variables:
       {{ now_time >= start or now_time < end }}
     {% endif %}
 
+  # ──── Derived (adaptive) ────
+  tracking_enabled: >
+    {{ (water_sensors | count) > 0
+       and (water_sensors | count) == (fountain_entity | count) }}
+
+  zones_count: "{{ fountain_entity | count }}"
+
+  zones_friendly_csv: >
+    {% set parts = [] %}
+    {% for z in fountain_entity %}
+      {% set parts = parts + [state_attr(z, 'friendly_name') or z] %}
+    {% endfor %}
+    {{ parts | join(', ') }}
+
+  # ──── Weather readings ────
+  current_temp: "{{ state_attr(weather_e, 'temperature') | float(temp_normal) }}"
+  current_humidity: "{{ state_attr(weather_e, 'humidity') | float(50) }}"
+  current_wind: "{{ state_attr(weather_e, 'wind_speed') | float(0) }}"
+  current_condition: "{{ states(weather_e) }}"
+
+  rain_recent_mm: >
+    {% if (rain_sensor | length) > 0 %}
+      {{ states(rain_sensor) | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  forecast_rain_proba: >
+    {% set fc = state_attr(weather_e, 'forecast') %}
+    {% if fc and (fc | count) > 0 %}
+      {{ fc[0].precipitation_probability | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  forecast_rain_mm: >
+    {% set fc = state_attr(weather_e, 'forecast') %}
+    {% if fc and (fc | count) > 0 %}
+      {{ fc[0].precipitation | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  dry_days: >
+    {% if (dry_days_helper | length) > 0 %}
+      {{ states(dry_days_helper) | float(0) | round(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  # ──── Coefficients ────
+  coef_temp: >
+    {{ (1 + 0.02 * (current_temp | float(temp_normal) - (temp_normal | float(22)))) | round(3) }}
+
+  coef_humidity: >
+    {% set h = current_humidity | float(50) %}
+    {% if h < 50 %}
+      {{ (1 + 0.01 * (50 - h)) | round(3) }}
+    {% else %}
+      1
+    {% endif %}
+
+  coef_wind: >
+    {{ (1 + 0.05 * (current_wind | float(0) / 10)) | round(3) }}
+
+  coef_dry_days: >
+    {{ (1 + 0.08 * (dry_days | float(0))) | round(3) }}
+
+  coef_rain: >
+    {% set r = rain_recent_mm | float(0) %}
+    {% set cancel = rain_cancel_th | float(5) %}
+    {% set reduce = rain_reduce_th | float(2) %}
+    {% if r >= cancel %}
+      0
+    {% elif r >= reduce %}
+      {{ ((cancel - r) / (cancel - reduce)) | round(3) }}
+    {% else %}
+      1
+    {% endif %}
+
+  coef_forecast: >
+    {% set p = forecast_rain_proba | float(0) %}
+    {% if p > 70 %}
+      0.5
+    {% elif p > 40 %}
+      0.75
+    {% else %}
+      1
+    {% endif %}
+
+  coef_total: >
+    {{ (coef_temp | float(1)
+        * coef_humidity | float(1)
+        * coef_wind | float(1)
+        * coef_dry_days | float(1)
+        * coef_rain | float(1)
+        * coef_forecast | float(1)) | round(3) }}
+
+  # ──── Duration computation (adaptive) ────
+  raw_duration_per_zone: "{{ (base_dur_min | float(0) * coef_total | float(1)) | round(1) }}"
+
+  capped_duration_per_zone: >
+    {% set raw = raw_duration_per_zone | float(0) %}
+    {% set n = zones_count | int(1) %}
+    {% set max_per_zone = (max_total_min | float(120)) / (n if n > 0 else 1) %}
+    {{ [raw, max_per_zone] | min | round(1) }}
+
+  cancel_due_to_rain: "{{ (coef_rain | float(1)) == 0 }}"
+  cancel_due_to_too_short: "{{ capped_duration_per_zone | float(0) < (min_dur_min | float(0)) }}"
+  will_cancel: "{{ cancel_due_to_rain or cancel_due_to_too_short }}"
+
+  cancel_reason: >
+    {% if cancel_due_to_rain %}
+      Rain {{ rain_label }} ({{ rain_recent_mm }}mm ≥ {{ rain_cancel_th }}mm threshold)
+    {% elif cancel_due_to_too_short %}
+      Computed duration too short ({{ capped_duration_per_zone }}min < {{ min_dur_min }}min minimum)
+    {% else %}
+      —
+    {% endif %}
+
+  final_duration_per_zone: "{{ 0 if will_cancel else capped_duration_per_zone | float(0) }}"
+  estimated_total_minutes: >
+    {{ (0 if will_cancel
+        else (final_duration_per_zone | float(0)) * (zones_count | int(0))
+             + (zones_count | int(0) - 1) * (pause_s | float(0)) / 60) | round(1) }}
+
+  is_heatwave: "{{ current_temp | float(0) >= heatwave_th | float(35) }}"
+
 condition: []
 
 action:
   - choose:
-      # CASE 1: Scheduled ON trigger
+      # ════════════════════════════════════════════════════════════
+      # CASE 1: Start time
+      # ════════════════════════════════════════════════════════════
       - conditions:
           - condition: trigger
             id: "scheduled_on"
         sequence:
-          # Turn on fountain
-          - action: switch.turn_on
-            target:
-              entity_id: !input fountain_switch
-
-          # Send notification
           - choose:
+              # ──────────────────────────────────────────────────────
+              # MODE 2 — ADAPTIVE SEQUENTIAL WATERING
+              # ──────────────────────────────────────────────────────
               - conditions:
                   - condition: template
-                    value_template: "{{ notif_active }}"
+                    value_template: "{{ op_mode == 'adaptive_sequential' }}"
                 sequence:
-                  - action: "{{ notif_service }}"
-                    data:
-                      title: "⛲ Fountain ON"
-                      message: >
-                        Fountain started at {{ heure_debut }}.
-                        Will stop at {{ heure_fin }}.
-            default: []
-
-      # CASE 2: Scheduled OFF trigger
-      - conditions:
-          - condition: trigger
-            id: "scheduled_off"
-        sequence:
-          # Turn off fountain
-          - action: switch.turn_off
-            target:
-              entity_id: !input fountain_switch
-
-          # Send notification
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ notif_active }}"
-                sequence:
-                  - action: "{{ notif_service }}"
-                    data:
-                      title: "⛲ Fountain OFF"
-                      message: >
-                        Fountain stopped at {{ heure_fin }}.
-                        Will restart at {{ heure_debut }}.
-            default: []
-
-      # CASE 3: Home Assistant restart - synchronize state
-      - conditions:
-          - condition: trigger
-            id: "ha_restart"
-        sequence:
-          # Wait a bit for entities to be ready
-          - delay:
-              seconds: 5
-
-          # Check if fountain should be ON or OFF based on current time
-          - choose:
-              # Should be ON
-              - conditions:
-                  - condition: template
-                    value_template: "{{ should_be_on }}"
-                sequence:
-                  # Turn ON if not already ON
+                  # STEP 1 — Update dry-days counter (always, even if cancelled)
                   - choose:
                       - conditions:
                           - condition: template
-                            value_template: "{{ not is_state(fountain_entity, 'on') }}"
+                            value_template: "{{ (dry_days_helper | length) > 0 }}"
                         sequence:
-                          - action: switch.turn_on
-                            target:
-                              entity_id: !input fountain_switch
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ rain_recent_mm | float(0) >= rain_reduce_th | float(2) }}"
+                                sequence:
+                                  - action: input_number.set_value
+                                    target:
+                                      entity_id: "{{ dry_days_helper }}"
+                                    data:
+                                      value: 0
+                            default:
+                              - action: input_number.set_value
+                                target:
+                                  entity_id: "{{ dry_days_helper }}"
+                                data:
+                                  value: "{{ (dry_days | float(0)) + 1 }}"
+                    default: []
 
-                          # Send notification
+                  # STEP 2 — If cancelled: status + history + notif, then stop
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ will_cancel }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ (status_helper | length) > 0 }}"
+                                sequence:
+                                  - action: input_text.set_value
+                                    target:
+                                      entity_id: "{{ status_helper }}"
+                                    data:
+                                      value: >-
+                                        🚫 Cancelled {{ now().strftime('%d/%m %H:%M') }} —
+                                        {% if cancel_due_to_rain %}rain {{ rain_label }} {{ rain_recent_mm }}mm{% else %}too short ({{ capped_duration_per_zone }}min){% endif %}
+                            default: []
+
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ (history_helper | length) > 0 }}"
+                                sequence:
+                                  - variables:
+                                      new_entry: >-
+                                        {{ now().strftime('%d/%m') }}: cancelled ({% if cancel_due_to_rain %}{{ rain_recent_mm }}mm rain {{ rain_label }}{% else %}{{ capped_duration_per_zone }}min < min{% endif %})
+                                      old_hist: "{{ states(history_helper) }}"
+                                      merged: >-
+                                        {{ new_entry }}{% if old_hist not in ['unknown','unavailable',''] %} | {{ old_hist }}{% endif %}
+                                  - action: input_text.set_value
+                                    target:
+                                      entity_id: "{{ history_helper }}"
+                                    data:
+                                      value: "{{ merged[:255] }}"
+                            default: []
+
                           - choose:
                               - conditions:
                                   - condition: template
@@ -170,25 +600,361 @@ action:
                                 sequence:
                                   - action: "{{ notif_service }}"
                                     data:
-                                      title: "⛲ Fountain synchronized"
-                                      message: >
-                                        After HA restart: Fountain turned ON (should be active {{ heure_debut }} - {{ heure_fin }})
+                                      title: "🚫 Watering cancelled"
+                                      message: |-
+                                        Watering cancelled: {{ cancel_reason }}.
+                                        🌡️ Temp: {{ current_temp }}°C{% if is_heatwave %} 🔥{% endif %}
+                                        💧 Humidity: {{ current_humidity }}%
+                                        🌬️ Wind: {{ current_wind }} km/h
+                                        🌧️ Rain {{ rain_label }}: {{ rain_recent_mm }} mm
+                                        🔮 Rain forecast: {{ forecast_rain_proba }}% / {{ forecast_rain_mm }} mm
+                                        ☀️ Dry days: {{ dry_days }}
+                                        🚰 Zones skipped: {{ zones_friendly_csv }}
                             default: []
+
+                          - stop: "Cycle cancelled, counter & status updated."
                     default: []
 
-            # Should be OFF
+                  # STEP 3 — Pre-cycle: capture initial liters & "started" notif
+                  - variables:
+                      cycle_start_ts: "{{ now().timestamp() }}"
+                      initial_liters: >
+                        {% if tracking_enabled %}
+                          {{ water_sensors | map('states') | map('float', 0) | list }}
+                        {% else %}
+                          []
+                        {% endif %}
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (status_helper | length) > 0 }}"
+                        sequence:
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: >-
+                                🌱 Running ({{ zones_count }} zones × {{ final_duration_per_zone }}min, ETA {{ estimated_total_minutes }}min)
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ notif_active }}"
+                        sequence:
+                          - action: "{{ notif_service }}"
+                            data:
+                              title: "🌱 Smart watering started"
+                              message: |-
+                                Duration: {{ final_duration_per_zone }} min/zone × {{ zones_count }} zones
+                                (base {{ base_dur_min }} min × coef {{ coef_total }})
+                                ⏱ Estimated total: ~{{ estimated_total_minutes }} min
+                                📋 Order: {{ zones_friendly_csv }}
+                                🕒 Started at {{ now().strftime('%H:%M:%S') }}
+                                ────── Details ──────
+                                🌡️ Temp: {{ current_temp }}°C (coef {{ coef_temp }}){% if is_heatwave %} 🔥 HEATWAVE{% endif %}
+                                💧 Humidity: {{ current_humidity }}% (coef {{ coef_humidity }})
+                                🌬️ Wind: {{ current_wind }} km/h (coef {{ coef_wind }})
+                                ☀️ Dry days: {{ dry_days }} (coef {{ coef_dry_days }})
+                                🌧️ Rain {{ rain_label }}: {{ rain_recent_mm }} mm (coef {{ coef_rain }})
+                                🔮 Forecast: {{ forecast_rain_proba }}% / {{ forecast_rain_mm }} mm (coef {{ coef_forecast }})
+                                {% if tracking_enabled %}💦 Per-zone water tracking enabled{% endif %}
+                    default: []
+
+                  # STEP 4 — Sequential cycle: one zone at a time
+                  - repeat:
+                      for_each: "{{ fountain_entity }}"
+                      sequence:
+                        - variables:
+                            zone_idx: "{{ repeat.index - 1 }}"
+                            zone_switch: "{{ repeat.item }}"
+                            zone_friendly: "{{ state_attr(repeat.item, 'friendly_name') or repeat.item }}"
+                            zone_start_liters: >
+                              {% if tracking_enabled %}
+                                {{ states(water_sensors[zone_idx]) | float(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            zone_start_ts: "{{ now().timestamp() }}"
+
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ (status_helper | length) > 0 }}"
+                              sequence:
+                                - action: input_text.set_value
+                                  target:
+                                    entity_id: "{{ status_helper }}"
+                                  data:
+                                    value: >-
+                                      🌱 Zone {{ repeat.index }}/{{ zones_count }}: {{ zone_friendly }} ({{ final_duration_per_zone }}min)
+                          default: []
+
+                        # Open valve
+                        - action: switch.turn_on
+                          target:
+                            entity_id: "{{ zone_switch }}"
+
+                        # Run for the computed duration.
+                        # Expressed as a single rounded number of seconds
+                        # (HA normalizes it). Example: 10.7 min → 642 s.
+                        - delay:
+                            seconds: "{{ (final_duration_per_zone | float(0) * 60) | round | int }}"
+
+                        # Close valve
+                        - action: switch.turn_off
+                          target:
+                            entity_id: "{{ zone_switch }}"
+
+                        # If tracking: settle, measure & notify per zone
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ tracking_enabled }}"
+                              sequence:
+                                - delay:
+                                    seconds: "{{ settle_s | int }}"
+                                - variables:
+                                    zone_end_liters: "{{ states(water_sensors[zone_idx]) | float(0) }}"
+                                    zone_consumed: "{{ (zone_end_liters - zone_start_liters) | round(2) }}"
+                                    zone_real_minutes: "{{ ((now().timestamp() - zone_start_ts) / 60) | round(1) }}"
+                                - choose:
+                                    - conditions:
+                                        - condition: template
+                                          value_template: "{{ notif_active }}"
+                                      sequence:
+                                        - action: "{{ notif_service }}"
+                                          data:
+                                            title: "💧 Zone {{ repeat.index }}/{{ zones_count }} done: {{ zone_friendly }}"
+                                            message: |-
+                                              ✅ '{{ zone_friendly }}' finished.
+                                              ⏱ Duration: {{ zone_real_minutes }} min (target {{ final_duration_per_zone }} min)
+                                              💦 Water used: {{ zone_consumed }} L
+                                              📊 Sensor: {{ zone_start_liters }} L → {{ zone_end_liters }} L
+                                  default: []
+                          default: []
+
+                        # Pause before next zone (skip on last)
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ not repeat.last and (pause_s | int) > 0 }}"
+                              sequence:
+                                - delay:
+                                    seconds: "{{ pause_s | int }}"
+
+                  # STEP 5 — Post-cycle: totals, helpers, history, final notif
+                  - variables:
+                      final_liters: >
+                        {% if tracking_enabled %}
+                          {{ water_sensors | map('states') | map('float', 0) | list }}
+                        {% else %}
+                          []
+                        {% endif %}
+                      total_consumed: >
+                        {% if tracking_enabled %}
+                          {{ ((final_liters | sum) - (initial_liters | sum)) | round(2) }}
+                        {% else %}
+                          0
+                        {% endif %}
+                      per_zone_consumed: >
+                        {% if tracking_enabled %}
+                          [{% for i in range(initial_liters | count) %}{{ (final_liters[i] - initial_liters[i]) | round(2) }}{% if not loop.last %}, {% endif %}{% endfor %}]
+                        {% else %}
+                          []
+                        {% endif %}
+                      cycle_real_minutes: "{{ ((now().timestamp() - cycle_start_ts) / 60) | round(1) }}"
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ tracking_enabled and (cumul_counter | length) > 0 }}"
+                        sequence:
+                          - action: input_number.set_value
+                            target:
+                              entity_id: "{{ cumul_counter }}"
+                            data:
+                              value: "{{ ((states(cumul_counter) | float(0)) + (total_consumed | float(0))) | round(2) }}"
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (status_helper | length) > 0 }}"
+                        sequence:
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: >-
+                                ✅ Completed {{ now().strftime('%d/%m %H:%M') }} —
+                                {% if tracking_enabled %}{{ total_consumed }}L in{% endif %} {{ cycle_real_minutes }}min ({{ zones_count }} zones)
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (history_helper | length) > 0 }}"
+                        sequence:
+                          - variables:
+                              new_entry: >-
+                                {{ now().strftime('%d/%m') }}: {{ cycle_real_minutes }}min{% if tracking_enabled %}, {{ total_consumed }}L{% endif %}, {{ current_temp | round(0) }}°C
+                              old_hist: "{{ states(history_helper) }}"
+                              old_parts: >-
+                                {% if old_hist in ['unknown','unavailable',''] %}
+                                  []
+                                {% else %}
+                                  {{ old_hist.split(' | ') }}
+                                {% endif %}
+                              kept_parts: "{{ ([new_entry] + (old_parts | list))[:5] }}"
+                              merged: "{{ kept_parts | join(' | ') }}"
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ history_helper }}"
+                            data:
+                              value: "{{ merged[:255] }}"
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ notif_active }}"
+                        sequence:
+                          - action: "{{ notif_service }}"
+                            data:
+                              title: "✅ Watering complete"
+                              message: |-
+                                🏁 Cycle finished — {{ zones_count }} zone(s) in {{ cycle_real_minutes }} min.
+                                {% if tracking_enabled %}
+                                💦 Total water used: {{ total_consumed }} L
+                                📋 Per zone:
+                                {% for z in fountain_entity %}  • {{ state_attr(z, 'friendly_name') or z }}: {{ per_zone_consumed[loop.index0] }} L
+                                {% endfor %}{% if (cumul_counter | length) > 0 %}
+                                📊 Cumulative total: {{ (states(cumul_counter) | float(0)) | round(2) }} L{% endif %}
+                                {% else %}
+                                ℹ️ Water tracking disabled (provide one sensor per zone to enable).
+                                {% endif %}
+                                🕒 Finished at {{ now().strftime('%H:%M:%S') }}
+                    default: []
+
+            # ──────────────────────────────────────────────────────
+            # MODE 1 — SIMPLE SCHEDULE (default) — turn ON
+            # ──────────────────────────────────────────────────────
             default:
-              # Turn OFF if not already OFF
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ fountain_entity }}"
+
               - choose:
                   - conditions:
                       - condition: template
-                        value_template: "{{ not is_state(fountain_entity, 'off') }}"
+                        value_template: "{{ notif_active }}"
                     sequence:
-                      - action: switch.turn_off
-                        target:
-                          entity_id: !input fountain_switch
+                      - action: "{{ notif_service }}"
+                        data:
+                          title: "⛲ Switches ON"
+                          message: >
+                            {{ zones_count }} switch(es) started at {{ heure_debut }}: {{ zones_friendly_csv }}.
+                            Will stop at {{ heure_fin }}.
+                default: []
 
-                      # Send notification
+      # ════════════════════════════════════════════════════════════
+      # CASE 2: End time — turn OFF (simple mode only)
+      # ════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: "scheduled_off"
+          - condition: template
+            value_template: "{{ op_mode != 'adaptive_sequential' }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ fountain_entity }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "⛲ Switches OFF"
+                      message: >
+                        {{ zones_count }} switch(es) stopped at {{ heure_fin }}: {{ zones_friendly_csv }}.
+                        Will restart at {{ heure_debut }}.
+            default: []
+
+      # ════════════════════════════════════════════════════════════
+      # CASE 3: Home Assistant restart
+      # ════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: "ha_restart"
+        sequence:
+          - delay:
+              seconds: 5
+
+          - choose:
+              # ── ADAPTIVE mode: force everything OFF (safety) ──
+              - conditions:
+                  - condition: template
+                    value_template: "{{ op_mode == 'adaptive_sequential' }}"
+                sequence:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ fountain_entity }}"
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (status_helper | length) > 0 }}"
+                        sequence:
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: >-
+                                ♻️ Safety-off after restart {{ now().strftime('%d/%m %H:%M') }} — next cycle {{ heure_debut }}
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ notif_active }}"
+                        sequence:
+                          - action: "{{ notif_service }}"
+                            data:
+                              title: "♻️ Zones safety-off after restart"
+                              message: |-
+                                ⚠️ HA was restarted — an ongoing sequential cycle
+                                cannot be safely resumed.
+                                ✋ All {{ zones_count }} zone(s) forced OFF: {{ zones_friendly_csv }}
+                                🕒 At {{ now().strftime('%H:%M:%S') }}
+                                ▶️ Next scheduled cycle: {{ heure_debut }}
+                    default: []
+
+            # ── SIMPLE mode: re-sync state based on current time window ──
+            default:
+              - choose:
+                  # Should be ON
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ should_be_on }}"
+                    sequence:
+                      - repeat:
+                          for_each: "{{ fountain_entity }}"
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ not is_state(repeat.item, 'on') }}"
+                                  sequence:
+                                    - action: switch.turn_on
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                              default: []
+
                       - choose:
                           - conditions:
                               - condition: template
@@ -196,11 +962,40 @@ action:
                             sequence:
                               - action: "{{ notif_service }}"
                                 data:
-                                  title: "⛲ Fountain synchronized"
+                                  title: "⛲ Switches synchronized"
                                   message: >
-                                    After HA restart: Fountain turned OFF (should be active {{ heure_debut }} - {{ heure_fin }})
+                                    After HA restart: {{ zones_count }} switch(es) turned ON
+                                    (should be active {{ heure_debut }} - {{ heure_fin }}).
                         default: []
-                default: []
+
+                # Should be OFF
+                default:
+                  - repeat:
+                      for_each: "{{ fountain_entity }}"
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ not is_state(repeat.item, 'off') }}"
+                              sequence:
+                                - action: switch.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                          default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ notif_active }}"
+                        sequence:
+                          - action: "{{ notif_service }}"
+                            data:
+                              title: "⛲ Switches synchronized"
+                              message: >
+                                After HA restart: {{ zones_count }} switch(es) turned OFF
+                                (should be active {{ heure_debut }} - {{ heure_fin }}).
+                    default: []
 
     default: []
+
 
