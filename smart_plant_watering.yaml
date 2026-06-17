@@ -748,8 +748,7 @@ action:
                       entity_id: "{{ status_helper }}"
                     data:
                       value: >-
-                        ✅ Completed {{ now().strftime('%d/%m %H:%M') }} —
-                        {% if tracking_enabled %}{{ total_consumed }}L in{% endif %} {{ cycle_real_minutes }}min ({{ zones_count }} zones)
+                        ✅ {{ now().strftime('%d/%m %H:%M') }} | {{ zones_count }}z {{ cycle_real_minutes }}min{% if tracking_enabled %} {{ total_consumed }}L{% endif %} | base {{ base_dur_min }}×{{ coef_total }}={{ final_duration_per_zone }}min/z | 🌡{{ current_temp }}°×{{ coef_temp }} 💧{{ current_humidity }}%×{{ coef_humidity }} 🌬{{ current_wind }}×{{ coef_wind }} ☀{{ dry_days }}d×{{ coef_dry_days }} 🌧{{ rain_recent_mm }}mm×{{ coef_rain }} 🔮{{ forecast_rain_proba }}%×{{ coef_forecast }}
             default: []
 
           - choose:
@@ -786,16 +785,28 @@ action:
                       notification_id: "{{ notif_prefix }}"
                       title: "✅ Watering complete"
                       message: |-
-                        🏁 Cycle finished — {{ zones_count }} zone(s) in {{ cycle_real_minutes }} min.
-                        {% if tracking_enabled %}
-                        💦 Total water used: {{ total_consumed }} L
-                        📋 Per zone:
-                        {% for z in watering_zones %}  • {{ state_attr(z, 'friendly_name') or z }}: {{ per_zone_consumed[loop.index0] }} L
-                        {% endfor %}{% if (cumul_counter | length) > 0 %}
-                        📊 Cumulative total: {{ (states(cumul_counter) | float(0)) | round(2) }} L{% endif %}
-                        {% else %}
-                        ℹ️ Water tracking disabled (provide one sensor per zone to enable).
+                        🏁 {{ zones_count }} zone(s) watered — actual total {{ cycle_real_minutes }} min (planned ~{{ estimated_total_minutes }} min).
+
+                        ━━━━━ 💧 RESULT ━━━━━
+                        {% if tracking_enabled %}💦 Total water used: {{ total_consumed }} L
+                        📋 Per zone ({{ final_duration_per_zone }} min each):
+                        {% for z in watering_zones %}  {{ loop.index }}. {{ state_attr(z, 'friendly_name') or z }} — {{ per_zone_consumed[loop.index0] }} L
+                        {% endfor %}{% if (cumul_counter | length) > 0 %}📊 Cumulative total: {{ (states(cumul_counter) | float(0)) | round(2) }} L
+                        {% endif %}{% else %}ℹ️ Water tracking disabled (add one sensor per zone to measure liters).
                         {% endif %}
+                        ━━━━━ ⏱ DURATION CALC ━━━━━
+                        Base {{ base_dur_min }} min × total coef {{ coef_total }} = {{ raw_duration_per_zone }} min/zone
+                        {% if raw_duration_per_zone | float(0) > final_duration_per_zone | float(0) %}⚠️ Capped to {{ final_duration_per_zone }} min/zone (total cap {{ max_total_min }} min){% else %}✅ Applied {{ final_duration_per_zone }} min/zone (under the {{ max_total_min }} min total cap){% endif %}
+
+                        ━━━━━ 🌦 CONDITIONS → COEFFICIENTS ━━━━━
+                        coef_total = {{ coef_temp }} × {{ coef_humidity }} × {{ coef_wind }} × {{ coef_dry_days }} × {{ coef_rain }} × {{ coef_forecast }} = {{ coef_total }}
+                        🌡️ Temp {{ current_temp }}°C (ref {{ temp_normal }}°C) → {{ coef_temp }}{% if is_heatwave %} 🔥 HEATWAVE{% endif %}
+                        💧 Humidity {{ current_humidity }}% (ref 50%) → {{ coef_humidity }}
+                        🌬️ Wind {{ current_wind }} km/h → {{ coef_wind }}
+                        ☀️ Dry days {{ dry_days }} → {{ coef_dry_days }}
+                        🌧️ Rain {{ rain_label }} {{ rain_recent_mm }} mm (cancel ≥{{ rain_cancel_th }}, reduce ≥{{ rain_reduce_th }}) → {{ coef_rain }}
+                        🔮 Forecast {{ forecast_rain_proba }}% / {{ forecast_rain_mm }} mm → {{ coef_forecast }}
+
                         🕒 Finished at {{ now().strftime('%H:%M:%S') }}
             default: []
 
