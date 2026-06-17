@@ -1,0 +1,795 @@
+blueprint:
+  name: "Smart Plant Watering (Multi-Zone)"
+  description: >
+    Adaptive, weather-based plant watering — now MULTI-ZONE.
+
+    Evolution of "Smart Plant Watering v6": instead of a single valve, it
+    drives SEVERAL valves SEQUENTIALLY (one zone at a time, in the order you
+    select them). Only one valve is ever open, which is safe when your water
+    supply cannot feed multiple zones at once.
+
+    ────────── ADAPTIVE DURATION ──────────
+
+    Each zone runs for a duration derived from a base value multiplied by six
+    weather coefficients, then bounded by safety min/max:
+
+      duration_per_zone = base_duration_minutes
+                          × coef_temp × coef_humidity × coef_wind
+                          × coef_dry_days × coef_rain × coef_forecast
+
+    | 🌡️ Temperature | +2% per °C above normal, -2% below                |
+    | 💧 Humidity    | +1% per % below 50% (none above 50%)              |
+    | 🌬️ Wind        | +5% per 10 km/h                                    |
+    | ☀️ Dry days    | +8% per consecutive dry day                       |
+    | 🌧️ Rain        | Cancel ≥ rain_cancel, partial reduction ≥ rain_reduction |
+    | 🔮 Forecast    | -50% if rain proba > 70%, -25% if > 40%           |
+
+    ────────── FEATURES ──────────
+
+    • Auto-cancellation when it rained enough or the computed time is too short
+    • Consecutive dry-days counter (reset on rainy days, +1 otherwise)
+    • Per-zone + total water tracking via SONOFF-SWV-style sensors
+    • Optional cumulative liters counter, real-time status, compact history
+    • Rich notifications (start, per zone, complete, cancelled, restart)
+    • HA-restart safety: all valves forced OFF (a sequence cannot be resumed)
+
+    ────────── MIGRATING FROM v6 (single-zone) ──────────
+
+    Input names are kept compatible with v6. The main differences:
+      • watering_switch  → watering_switches   (select one OR several)
+      • water_volume_sensor → water_volume_sensors (one per zone, same order)
+      • base_duration_minutes is now PER ZONE
+      • max_duration_minutes is now the TOTAL cap (all zones summed)
+      • min_duration_minutes is the PER-ZONE minimum below which the whole
+        cycle is cancelled
+    Your existing helpers (smart_watering_dry_days, etc.) are reused as-is.
+
+    ────────── RAIN SENSOR WINDOW ──────────
+
+    The rain value is read AS-IS from rain_sensor_today — the blueprint does
+    not compute any time window. Pick a sensor matching the period you want
+    (today, or a Statistics sensor with max_age 12h, etc.). Use
+    rain_period_label to mirror that choice in messages.
+  domain: automation
+  source_url: https://github.com/lombat/home-assistant-blueprints
+
+  input:
+    # ════════════ ZONES & WATER SENSORS ════════════
+    watering_switches:
+      name: "Watering valves (zones)"
+      description: >
+        The valve/switch entities to control, IN THE ORDER you want them to
+        run (zone 1 → zone 2 → ...). Select ONE for classic single-zone, or
+        SEVERAL for multi-zone. Each zone runs only when the previous closes.
+      selector:
+        entity:
+          domain: switch
+          multiple: true
+
+    water_volume_sensors:
+      name: "Water volume sensors per zone (optional)"
+      description: >
+        ONE sensor per zone, in the SAME ORDER as the valves above
+        (e.g. sensor.vanne_pelouse_water_consumed for SONOFF SWV).
+        Per-zone measurement is enabled only if this list has the SAME length
+        as the valves list. Leave empty to disable measurement.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: true
+
+    # ════════════ SCHEDULE ════════════
+    watering_time:
+      name: "Watering start time"
+      description: "Daily trigger time (default 06:00)"
+      default: "06:00:00"
+      selector:
+        time: {}
+
+    # ════════════ WEATHER ════════════
+    weather_entity:
+      name: "Weather entity"
+      description: >
+        Weather integration exposing temperature, humidity, wind_speed and a
+        daily forecast (e.g. weather.irm_kmi_home).
+      selector:
+        entity:
+          domain: weather
+
+    rain_sensor_today:
+      name: "Rain sensor (optional) — any time window"
+      description: >
+        Sensor giving cumulative rain in mm over a recent period, read AS-IS.
+        Pick a 'rain today' sensor, or a Statistics sensor with max_age 12h,
+        etc. Leave empty to disable rain logic (coef_rain = 1).
+      default: ""
+      selector:
+        text: {}
+
+    rain_period_label:
+      name: "Rain period label (notifications)"
+      description: 'Cosmetic label: "today", "last 12h", "last 24h"…'
+      default: "today"
+      selector:
+        text: {}
+
+    # ════════════ WEATHER THRESHOLDS ════════════
+    temperature_normal:
+      name: "Normal temperature reference (°C)"
+      description: "Baseline. Above this, watering is increased."
+      default: 22
+      selector:
+        number:
+          min: 5
+          max: 35
+          step: 1
+          unit_of_measurement: "°C"
+          mode: slider
+
+    heatwave_threshold:
+      name: "Heatwave threshold (°C)"
+      description: "Above this, the cycle is labelled 'heatwave' in notifications."
+      default: 30
+      selector:
+        number:
+          min: 25
+          max: 45
+          step: 1
+          unit_of_measurement: "°C"
+          mode: slider
+
+    rain_cancel_threshold:
+      name: "Rain cancellation threshold (mm)"
+      description: "If recent rain is ≥ this value, the whole cycle is CANCELLED."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          step: 0.5
+          unit_of_measurement: "mm"
+          mode: slider
+
+    rain_reduction_threshold:
+      name: "Rain reduction threshold (mm)"
+      description: >
+        Between this value and the cancellation threshold, the cycle is
+        REDUCED proportionally. Below it, rain has no impact.
+        Also used to reset the dry-days counter.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 20
+          step: 0.5
+          unit_of_measurement: "mm"
+          mode: slider
+
+    # ════════════ DURATIONS ════════════
+    base_duration_minutes:
+      name: "Base duration PER ZONE (minutes)"
+      description: "Reference run-time for one zone before coefficients."
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 180
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    max_duration_minutes:
+      name: "Max TOTAL cycle duration (minutes) — safety cap"
+      description: >
+        Upper bound on the whole cycle (all zones summed). If exceeded, each
+        zone duration is shortened proportionally.
+      default: 120
+      selector:
+        number:
+          min: 5
+          max: 600
+          step: 5
+          unit_of_measurement: "min"
+          mode: slider
+
+    min_duration_minutes:
+      name: "Minimum duration PER ZONE (minutes)"
+      description: >
+        Below this value (after coefficients), the WHOLE cycle is cancelled
+        — too short to be useful.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    pause_between_zones_seconds:
+      name: "Pause between zones (seconds)"
+      description: "Delay between closing one valve and opening the next."
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: "s"
+          mode: slider
+
+    sensor_settle_delay:
+      name: "Sensor settle delay (seconds)"
+      description: "Delay after closing a valve before reading its water sensor."
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: "s"
+          mode: slider
+
+    # ════════════ HELPERS ════════════
+    dry_days_counter:
+      name: "Dry-days counter — input_number (REQUIRED)"
+      description: >
+        Counts consecutive days without meaningful rain (reset to 0 on rainy
+        days, +1 otherwise). Example: input_number.smart_watering_dry_days
+      selector:
+        entity:
+          domain: input_number
+
+    cumulative_liters_counter:
+      name: "Cumulative liters counter — input_number (optional)"
+      description: >
+        Running total of all water used across cycles
+        (e.g. input_number.smart_watering_total_liters). Leave empty to disable.
+      default: ""
+      selector:
+        text: {}
+
+    current_status:
+      name: "Current status — input_text (optional)"
+      description: "Real-time status string (e.g. input_text.smart_watering_status)."
+      default: ""
+      selector:
+        text: {}
+
+    watering_history:
+      name: "Watering history — input_text (optional)"
+      description: "Compact history of the last 5 sessions (e.g. input_text.smart_watering_history)."
+      default: ""
+      selector:
+        text: {}
+
+    # ════════════ NOTIFICATIONS ════════════
+    enable_notifications:
+      name: "Enable notifications"
+      description: "Send notifications when the cycle state changes"
+      default: false
+      selector:
+        boolean: {}
+
+    notification_service:
+      name: "Notification service"
+      description: "E.g.: notify.mobile_app_my_phone"
+      default: "notify.notify"
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  # Trigger 1: Daily start time
+  - platform: time
+    at: !input watering_time
+    id: "scheduled_start"
+
+  # Trigger 2: HA restart — safety OFF
+  - platform: homeassistant
+    event: start
+    id: "ha_restart"
+
+variables:
+  watering_zones: !input watering_switches
+  water_sensors: !input water_volume_sensors
+  watering_t: !input watering_time
+  weather_e: !input weather_entity
+  rain_sensor: !input rain_sensor_today
+  rain_label: !input rain_period_label
+  temp_normal: !input temperature_normal
+  heatwave_th: !input heatwave_threshold
+  rain_cancel_th: !input rain_cancel_threshold
+  rain_reduce_th: !input rain_reduction_threshold
+  base_dur_min: !input base_duration_minutes
+  max_total_min: !input max_duration_minutes
+  min_dur_min: !input min_duration_minutes
+  pause_s: !input pause_between_zones_seconds
+  settle_s: !input sensor_settle_delay
+  dry_days_helper: !input dry_days_counter
+  cumul_counter: !input cumulative_liters_counter
+  status_helper: !input current_status
+  history_helper: !input watering_history
+  notif_active: !input enable_notifications
+  notif_service: !input notification_service
+
+  tracking_enabled: >
+    {{ (water_sensors | count) > 0
+       and (water_sensors | count) == (watering_zones | count) }}
+
+  zones_count: "{{ watering_zones | count }}"
+
+  zones_friendly_csv: >
+    {% set parts = [] %}
+    {% for z in watering_zones %}
+      {% set parts = parts + [state_attr(z, 'friendly_name') or z] %}
+    {% endfor %}
+    {{ parts | join(', ') }}
+
+  # ──── Weather readings ────
+  current_temp: "{{ state_attr(weather_e, 'temperature') | float(temp_normal) }}"
+  current_humidity: "{{ state_attr(weather_e, 'humidity') | float(50) }}"
+  current_wind: "{{ state_attr(weather_e, 'wind_speed') | float(0) }}"
+  current_condition: "{{ states(weather_e) }}"
+
+  rain_recent_mm: >
+    {% if (rain_sensor | length) > 0 %}
+      {{ states(rain_sensor) | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  forecast_rain_proba: >
+    {% set fc = state_attr(weather_e, 'forecast') %}
+    {% if fc and (fc | count) > 0 %}
+      {{ fc[0].precipitation_probability | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  forecast_rain_mm: >
+    {% set fc = state_attr(weather_e, 'forecast') %}
+    {% if fc and (fc | count) > 0 %}
+      {{ fc[0].precipitation | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  dry_days: "{{ states(dry_days_helper) | float(0) | round(0) }}"
+
+  # ──── Coefficients ────
+  coef_temp: >
+    {{ (1 + 0.02 * (current_temp | float(temp_normal) - (temp_normal | float(22)))) | round(3) }}
+
+  coef_humidity: >
+    {% set h = current_humidity | float(50) %}
+    {% if h < 50 %}
+      {{ (1 + 0.01 * (50 - h)) | round(3) }}
+    {% else %}
+      1
+    {% endif %}
+
+  coef_wind: >
+    {{ (1 + 0.05 * (current_wind | float(0) / 10)) | round(3) }}
+
+  coef_dry_days: >
+    {{ (1 + 0.08 * (dry_days | float(0))) | round(3) }}
+
+  coef_rain: >
+    {% set r = rain_recent_mm | float(0) %}
+    {% set cancel = rain_cancel_th | float(5) %}
+    {% set reduce = rain_reduce_th | float(2) %}
+    {% if r >= cancel %}
+      0
+    {% elif r >= reduce %}
+      {{ ((cancel - r) / (cancel - reduce)) | round(3) }}
+    {% else %}
+      1
+    {% endif %}
+
+  coef_forecast: >
+    {% set p = forecast_rain_proba | float(0) %}
+    {% if p > 70 %}
+      0.5
+    {% elif p > 40 %}
+      0.75
+    {% else %}
+      1
+    {% endif %}
+
+  coef_total: >
+    {{ (coef_temp | float(1)
+        * coef_humidity | float(1)
+        * coef_wind | float(1)
+        * coef_dry_days | float(1)
+        * coef_rain | float(1)
+        * coef_forecast | float(1)) | round(3) }}
+
+  # ──── Duration computation ────
+  raw_duration_per_zone: "{{ (base_dur_min | float(0) * coef_total | float(1)) | round(1) }}"
+
+  capped_duration_per_zone: >
+    {% set raw = raw_duration_per_zone | float(0) %}
+    {% set n = zones_count | int(1) %}
+    {% set max_per_zone = (max_total_min | float(120)) / (n if n > 0 else 1) %}
+    {{ [raw, max_per_zone] | min | round(1) }}
+
+  cancel_due_to_rain: "{{ (coef_rain | float(1)) == 0 }}"
+  cancel_due_to_too_short: "{{ capped_duration_per_zone | float(0) < (min_dur_min | float(0)) }}"
+  will_cancel: "{{ cancel_due_to_rain or cancel_due_to_too_short }}"
+
+  cancel_reason: >
+    {% if cancel_due_to_rain %}
+      Rain {{ rain_label }} ({{ rain_recent_mm }}mm ≥ {{ rain_cancel_th }}mm threshold)
+    {% elif cancel_due_to_too_short %}
+      Computed duration too short ({{ capped_duration_per_zone }}min < {{ min_dur_min }}min minimum)
+    {% else %}
+      —
+    {% endif %}
+
+  final_duration_per_zone: "{{ 0 if will_cancel else capped_duration_per_zone | float(0) }}"
+  estimated_total_minutes: >
+    {{ (0 if will_cancel
+        else (final_duration_per_zone | float(0)) * (zones_count | int(0))
+             + (zones_count | int(0) - 1) * (pause_s | float(0)) / 60) | round(1) }}
+
+  is_heatwave: "{{ current_temp | float(0) >= heatwave_th | float(35) }}"
+
+condition: []
+
+action:
+  - choose:
+      # ════════════════════════════════════════════════════════════
+      # CASE 1: Scheduled start — adaptive cycle
+      # ════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: "scheduled_start"
+        sequence:
+          # STEP 1 — Update dry-days counter (always, even if cancelled)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ rain_recent_mm | float(0) >= rain_reduce_th | float(2) }}"
+                sequence:
+                  - action: input_number.set_value
+                    target:
+                      entity_id: "{{ dry_days_helper }}"
+                    data:
+                      value: 0
+            default:
+              - action: input_number.set_value
+                target:
+                  entity_id: "{{ dry_days_helper }}"
+                data:
+                  value: "{{ (dry_days | float(0)) + 1 }}"
+
+          # STEP 2 — If cancelled: status + history + notif, then stop
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ will_cancel }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (status_helper | length) > 0 }}"
+                        sequence:
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: >-
+                                🚫 Cancelled {{ now().strftime('%d/%m %H:%M') }} —
+                                {% if cancel_due_to_rain %}rain {{ rain_label }} {{ rain_recent_mm }}mm{% else %}too short ({{ capped_duration_per_zone }}min){% endif %}
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (history_helper | length) > 0 }}"
+                        sequence:
+                          - variables:
+                              new_entry: >-
+                                {{ now().strftime('%d/%m') }}: cancelled ({% if cancel_due_to_rain %}{{ rain_recent_mm }}mm rain {{ rain_label }}{% else %}{{ capped_duration_per_zone }}min < min{% endif %})
+                              old_hist: "{{ states(history_helper) }}"
+                              merged: >-
+                                {{ new_entry }}{% if old_hist not in ['unknown','unavailable',''] %} | {{ old_hist }}{% endif %}
+                          - action: input_text.set_value
+                            target:
+                              entity_id: "{{ history_helper }}"
+                            data:
+                              value: "{{ merged[:255] }}"
+                    default: []
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ notif_active }}"
+                        sequence:
+                          - action: "{{ notif_service }}"
+                            data:
+                              title: "🚫 Watering cancelled"
+                              message: |-
+                                Watering cancelled: {{ cancel_reason }}.
+                                🌡️ Temp: {{ current_temp }}°C{% if is_heatwave %} 🔥{% endif %}
+                                💧 Humidity: {{ current_humidity }}%
+                                🌬️ Wind: {{ current_wind }} km/h
+                                🌧️ Rain {{ rain_label }}: {{ rain_recent_mm }} mm
+                                🔮 Rain forecast: {{ forecast_rain_proba }}% / {{ forecast_rain_mm }} mm
+                                ☀️ Dry days: {{ dry_days }}
+                                🚰 Zones skipped: {{ zones_friendly_csv }}
+                    default: []
+
+                  - stop: "Cycle cancelled, counter & status updated."
+            default: []
+
+          # STEP 3 — Pre-cycle: capture initial liters & "started" notif
+          - variables:
+              cycle_start_ts: "{{ now().timestamp() }}"
+              initial_liters: >
+                {% if tracking_enabled %}
+                  {{ water_sensors | map('states') | map('float', 0) | list }}
+                {% else %}
+                  []
+                {% endif %}
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (status_helper | length) > 0 }}"
+                sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: >-
+                        🌱 Running ({{ zones_count }} zones × {{ final_duration_per_zone }}min, ETA {{ estimated_total_minutes }}min)
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "🌱 Smart watering started"
+                      message: |-
+                        Duration: {{ final_duration_per_zone }} min/zone × {{ zones_count }} zones
+                        (base {{ base_dur_min }} min × coef {{ coef_total }})
+                        ⏱ Estimated total: ~{{ estimated_total_minutes }} min
+                        📋 Order: {{ zones_friendly_csv }}
+                        🕒 Started at {{ now().strftime('%H:%M:%S') }}
+                        ────── Details ──────
+                        🌡️ Temp: {{ current_temp }}°C (coef {{ coef_temp }}){% if is_heatwave %} 🔥 HEATWAVE{% endif %}
+                        💧 Humidity: {{ current_humidity }}% (coef {{ coef_humidity }})
+                        🌬️ Wind: {{ current_wind }} km/h (coef {{ coef_wind }})
+                        ☀️ Dry days: {{ dry_days }} (coef {{ coef_dry_days }})
+                        🌧️ Rain {{ rain_label }}: {{ rain_recent_mm }} mm (coef {{ coef_rain }})
+                        🔮 Forecast: {{ forecast_rain_proba }}% / {{ forecast_rain_mm }} mm (coef {{ coef_forecast }})
+                        {% if tracking_enabled %}💦 Per-zone water tracking enabled{% endif %}
+            default: []
+
+          # STEP 4 — Sequential cycle: one zone at a time
+          - repeat:
+              for_each: "{{ watering_zones }}"
+              sequence:
+                - variables:
+                    zone_idx: "{{ repeat.index - 1 }}"
+                    zone_switch: "{{ repeat.item }}"
+                    zone_friendly: "{{ state_attr(repeat.item, 'friendly_name') or repeat.item }}"
+                    zone_start_liters: >
+                      {% if tracking_enabled %}
+                        {{ states(water_sensors[zone_idx]) | float(0) }}
+                      {% else %}
+                        0
+                      {% endif %}
+                    zone_start_ts: "{{ now().timestamp() }}"
+
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ (status_helper | length) > 0 }}"
+                      sequence:
+                        - action: input_text.set_value
+                          target:
+                            entity_id: "{{ status_helper }}"
+                          data:
+                            value: >-
+                              🌱 Zone {{ repeat.index }}/{{ zones_count }}: {{ zone_friendly }} ({{ final_duration_per_zone }}min)
+                  default: []
+
+                # Open valve
+                - action: switch.turn_on
+                  target:
+                    entity_id: "{{ zone_switch }}"
+
+                # Run for the computed duration (single rounded seconds value)
+                - delay:
+                    seconds: "{{ (final_duration_per_zone | float(0) * 60) | round | int }}"
+
+                # Close valve
+                - action: switch.turn_off
+                  target:
+                    entity_id: "{{ zone_switch }}"
+
+                # If tracking: settle, measure & notify per zone
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ tracking_enabled }}"
+                      sequence:
+                        - delay:
+                            seconds: "{{ settle_s | int }}"
+                        - variables:
+                            zone_end_liters: "{{ states(water_sensors[zone_idx]) | float(0) }}"
+                            zone_consumed: "{{ (zone_end_liters - zone_start_liters) | round(2) }}"
+                            zone_real_minutes: "{{ ((now().timestamp() - zone_start_ts) / 60) | round(1) }}"
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ notif_active }}"
+                              sequence:
+                                - action: "{{ notif_service }}"
+                                  data:
+                                    title: "💧 Zone {{ repeat.index }}/{{ zones_count }} done: {{ zone_friendly }}"
+                                    message: |-
+                                      ✅ '{{ zone_friendly }}' finished.
+                                      ⏱ Duration: {{ zone_real_minutes }} min (target {{ final_duration_per_zone }} min)
+                                      💦 Water used: {{ zone_consumed }} L
+                                      📊 Sensor: {{ zone_start_liters }} L → {{ zone_end_liters }} L
+                          default: []
+                  default: []
+
+                # Pause before next zone (skip on last)
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ not repeat.last and (pause_s | int) > 0 }}"
+                      sequence:
+                        - delay:
+                            seconds: "{{ pause_s | int }}"
+
+          # STEP 5 — Post-cycle: totals, helpers, history, final notif
+          - variables:
+              final_liters: >
+                {% if tracking_enabled %}
+                  {{ water_sensors | map('states') | map('float', 0) | list }}
+                {% else %}
+                  []
+                {% endif %}
+              total_consumed: >
+                {% if tracking_enabled %}
+                  {{ ((final_liters | sum) - (initial_liters | sum)) | round(2) }}
+                {% else %}
+                  0
+                {% endif %}
+              per_zone_consumed: >
+                {% if tracking_enabled %}
+                  [{% for i in range(initial_liters | count) %}{{ (final_liters[i] - initial_liters[i]) | round(2) }}{% if not loop.last %}, {% endif %}{% endfor %}]
+                {% else %}
+                  []
+                {% endif %}
+              cycle_real_minutes: "{{ ((now().timestamp() - cycle_start_ts) / 60) | round(1) }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ tracking_enabled and (cumul_counter | length) > 0 }}"
+                sequence:
+                  - action: input_number.set_value
+                    target:
+                      entity_id: "{{ cumul_counter }}"
+                    data:
+                      value: "{{ ((states(cumul_counter) | float(0)) + (total_consumed | float(0))) | round(2) }}"
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (status_helper | length) > 0 }}"
+                sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: >-
+                        ✅ Completed {{ now().strftime('%d/%m %H:%M') }} —
+                        {% if tracking_enabled %}{{ total_consumed }}L in{% endif %} {{ cycle_real_minutes }}min ({{ zones_count }} zones)
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (history_helper | length) > 0 }}"
+                sequence:
+                  - variables:
+                      new_entry: >-
+                        {{ now().strftime('%d/%m') }}: {{ cycle_real_minutes }}min{% if tracking_enabled %}, {{ total_consumed }}L{% endif %}, {{ current_temp | round(0) }}°C
+                      old_hist: "{{ states(history_helper) }}"
+                      old_parts: >-
+                        {% if old_hist in ['unknown','unavailable',''] %}
+                          []
+                        {% else %}
+                          {{ old_hist.split(' | ') }}
+                        {% endif %}
+                      kept_parts: "{{ ([new_entry] + (old_parts | list))[:5] }}"
+                      merged: "{{ kept_parts | join(' | ') }}"
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ history_helper }}"
+                    data:
+                      value: "{{ merged[:255] }}"
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "✅ Watering complete"
+                      message: |-
+                        🏁 Cycle finished — {{ zones_count }} zone(s) in {{ cycle_real_minutes }} min.
+                        {% if tracking_enabled %}
+                        💦 Total water used: {{ total_consumed }} L
+                        📋 Per zone:
+                        {% for z in watering_zones %}  • {{ state_attr(z, 'friendly_name') or z }}: {{ per_zone_consumed[loop.index0] }} L
+                        {% endfor %}{% if (cumul_counter | length) > 0 %}
+                        📊 Cumulative total: {{ (states(cumul_counter) | float(0)) | round(2) }} L{% endif %}
+                        {% else %}
+                        ℹ️ Water tracking disabled (provide one sensor per zone to enable).
+                        {% endif %}
+                        🕒 Finished at {{ now().strftime('%H:%M:%S') }}
+            default: []
+
+      # ════════════════════════════════════════════════════════════
+      # CASE 2: HA restart — safety OFF for all zones
+      # ════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: "ha_restart"
+        sequence:
+          - delay:
+              seconds: 5
+
+          - action: switch.turn_off
+            target:
+              entity_id: !input watering_switches
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (status_helper | length) > 0 }}"
+                sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: >-
+                        ♻️ Safety-off after restart {{ now().strftime('%d/%m %H:%M') }} — next cycle {{ watering_t }}
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: "{{ notif_service }}"
+                    data:
+                      title: "♻️ Watering safety-off after restart"
+                      message: |-
+                        ⚠️ HA was restarted — an ongoing sequential cycle
+                        cannot be safely resumed.
+                        ✋ All {{ zones_count }} zone(s) forced OFF: {{ zones_friendly_csv }}
+                        🕒 At {{ now().strftime('%H:%M:%S') }}
+                        ▶️ Next scheduled cycle: {{ watering_t }}
+            default: []
+
+    default: []
+

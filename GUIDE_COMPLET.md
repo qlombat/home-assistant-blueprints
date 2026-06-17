@@ -60,7 +60,8 @@ Ce blueprint gère l'arrosage automatique adaptatif avec :
 ### 2. Matériel
 
 - **SONOFF SWV** (Smart Water Valve) connecté via Zigbee2MQTT ou ZHA
-- Capteurs exposés :
+  - **Une vanne par zone** en multi-zone (ex. pelouse, potager, haie…)
+- Capteurs exposés (par vanne) :
   - `sensor.<nom>_water_consumed` (volume cumulé en litres)
   - `switch.<nom>` (contrôle vanne)
 
@@ -71,16 +72,24 @@ Ce blueprint gère l'arrosage automatique adaptatif avec :
 
 ## 🔧 Configuration du Blueprint
 
+> 🌱 **Multi-zone** : utilisez le blueprint
+> [`smart_plant_watering.yaml`](smart_plant_watering.yaml). Il arrose les
+> zones **séquentiellement** (une vanne à la fois). Sélectionnez plusieurs
+> vannes et, si possible, un capteur de volume par vanne **dans le même
+> ordre**.
+
 Lors de la création de l'automatisation :
 
 ### Entités obligatoires
-- **Switch arrosage** : `switch.water_valve` (votre SONOFF SWV)
+- **Vannes d'arrosage** : `switch.vanne_pelouse`, `switch.vanne_potager`, …
+  (une seule vanne = mono-zone classique ; l'ordre détermine l'ordre d'arrosage)
 - **Entité météo** : `weather.irm_kmi_home`
-- **Capteur volume** : `sensor.water_valve_water_consumed`
 - **Compteur jours secs** : `input_number.smart_watering_dry_days`
 
 ### Entités optionnelles
-- **Capteur pluie jour** : capteur pluie cumulée (si disponible)
+- **Capteurs volume par zone** : un `sensor.<nom>_water_consumed` par vanne,
+  dans le **même ordre** que les vannes (mesure par zone + total)
+- **Capteur pluie** : capteur pluie cumulée (today ou statistiques 12 h)
 - **Compteur litres** : `input_number.smart_watering_total_liters`
 - **Statut actuel** : `input_text.smart_watering_status`
 - **Historique** : `input_text.smart_watering_history`
@@ -91,9 +100,10 @@ Lors de la création de l'automatisation :
 - **Seuil canicule** : `30°C`
 - **Pluie annulation** : `5mm`
 - **Pluie réduction** : `2mm`
-- **Durée base** : `60 min`
-- **Durée max** : `120 min`
-- **Durée min** : `15 min`
+- **Durée base (par zone)** : `15 min`
+- **Durée max (total, toutes zones)** : `120 min`
+- **Durée min (par zone)** : `5 min`
+- **Pause entre zones** : `30 s`
 
 ## 📊 Dashboard
 
@@ -194,7 +204,7 @@ Temperature: 18°C | Humidity: 85%
 
 ## 📈 Évolutions futures
 
-- [ ] Support multi-zones (plusieurs vannes)
+- [x] Support multi-zones (plusieurs vannes) — séquentiel, une vanne à la fois
 - [ ] Prévisions météo avancées (radar pluie)
 - [ ] Graphiques consommation par mois
 - [ ] Export CSV historique détaillé
