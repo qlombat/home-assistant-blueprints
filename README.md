@@ -67,7 +67,7 @@ duration_per_zone = base_duration_minutes
 - ☀️ Consecutive dry-days counter (reset on rainy days, +1 otherwise)
 - 💧 Per-zone + total water tracking (SONOFF SWV style) + optional cumulative liters
 - 📊 Real-time status + 📚 compact 5-session history (via `input_text`)
-- 🔔 Rich notifications: started (full weather breakdown), per-zone (measured liters), complete (per-zone recap + total), cancelled (reason), restart safety-off
+- 🔔 Rich **Home Assistant persistent notifications** (stay in the notifications panel / bell icon, updated in place via `notification_id_prefix`): started (full weather breakdown), per-zone (measured liters), complete (per-zone recap + total), cancelled (reason), restart safety-off
 - ♻️ HA-restart safety: all valves forced OFF (a sequence can't be resumed)
 
 **Migrating from v6 (single-zone):** input names are kept compatible. The

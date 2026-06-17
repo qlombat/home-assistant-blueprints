@@ -158,7 +158,16 @@ Durée finale = Durée base × coef_temp × coef_humidité × coef_vent × coef_
 
 ## 🔔 Notifications
 
-Activables ou désactivables. Format :
+Activables ou désactivables. Elles sont créées comme **notifications
+persistantes Home Assistant** : elles restent dans le panneau de
+notifications (icône cloche) au lieu d'être poussées vers un téléphone.
+
+Le paramètre **`notification_id_prefix`** (défaut `smart_watering`) sert
+d'identifiant : chaque nouvelle notification **remplace** la précédente au
+lieu de s'empiler. Utilisez un préfixe **unique par automatisation** si vous
+avez plusieurs instances (ex. `smart_watering_avant`, `smart_watering_arriere`).
+
+Format :
 
 **Début :**
 ```

@@ -30,7 +30,8 @@ blueprint:
     • Consecutive dry-days counter (reset on rainy days, +1 otherwise)
     • Per-zone + total water tracking via SONOFF-SWV-style sensors
     • Optional cumulative liters counter, real-time status, compact history
-    • Rich notifications (start, per zone, complete, cancelled, restart)
+    • Rich Home Assistant PERSISTENT notifications (start, per zone, complete,
+      cancelled, restart) that stay in the notifications panel / bell icon
     • HA-restart safety: all valves forced OFF (a sequence cannot be resumed)
 
     ────────── MIGRATING FROM v6 (single-zone) ──────────
@@ -272,12 +273,41 @@ blueprint:
       selector:
         boolean: {}
 
-    notification_service:
-      name: "Notification service"
-      description: "E.g.: notify.mobile_app_my_phone"
-      default: "notify.notify"
+    notification_id_prefix:
+      name: "Notification ID prefix"
+      description: >
+        All notifications are created as Home Assistant PERSISTENT
+        notifications (they stay in the notifications panel / bell icon).
+        This prefix is used as their notification_id so each update replaces
+        the previous one instead of stacking. Use a UNIQUE prefix per
+        automation instance (e.g. smart_watering_front, smart_watering_back).
+      default: "smart_watering"
       selector:
         text: {}
+
+    # ════════════ SAFETY ════════════
+    safety_max_valve_minutes:
+      name: "Safety watchdog — max continuous valve ON time (minutes)"
+      description: >
+        Failsafe against a valve left open when a cycle is interrupted
+        (e.g. you reload automations or edit the blueprint WHILE it is
+        watering — this cancels the run, so the closing step never executes).
+        If ANY valve stays ON continuously longer than this, the blueprint
+        force-closes ALL valves.
+
+        Set it ABOVE the longest a single zone can normally run (with the
+        defaults that's well under 30 min). Note: thanks to mode:single, this
+        watchdog never interferes with a normal running cycle — it only acts
+        when the automation is NOT running but a valve is still ON (the exact
+        stuck-valve situation).
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 600
+          step: 5
+          unit_of_measurement: "min"
+          mode: slider
 
 mode: single
 max_exceeded: silent
@@ -292,6 +322,16 @@ trigger:
   - platform: homeassistant
     event: start
     id: "ha_restart"
+
+  # Trigger 3: Safety watchdog — a valve stayed ON longer than allowed
+  # (typically because a cycle was interrupted by an automation reload).
+  # Thanks to mode:single this only runs when no cycle is active.
+  - platform: state
+    entity_id: !input watering_switches
+    to: "on"
+    for:
+      minutes: !input safety_max_valve_minutes
+    id: "valve_watchdog"
 
 variables:
   watering_zones: !input watering_switches
@@ -314,7 +354,8 @@ variables:
   status_helper: !input current_status
   history_helper: !input watering_history
   notif_active: !input enable_notifications
-  notif_service: !input notification_service
+  notif_prefix: !input notification_id_prefix
+  safety_max_min: !input safety_max_valve_minutes
 
   tracking_enabled: >
     {{ (water_sensors | count) > 0
@@ -323,11 +364,11 @@ variables:
   zones_count: "{{ watering_zones | count }}"
 
   zones_friendly_csv: >
-    {% set parts = [] %}
+    {% set ns = namespace(parts=[]) %}
     {% for z in watering_zones %}
-      {% set parts = parts + [state_attr(z, 'friendly_name') or z] %}
+      {% set ns.parts = ns.parts + [state_attr(z, 'friendly_name') or z] %}
     {% endfor %}
-    {{ parts | join(', ') }}
+    {{ ns.parts | join(', ') }}
 
   # ──── Weather readings ────
   current_temp: "{{ state_attr(weather_e, 'temperature') | float(temp_normal) }}"
@@ -449,6 +490,12 @@ action:
           - condition: trigger
             id: "scheduled_start"
         sequence:
+          # STEP 0 — Defensive: close any valve possibly left open by a
+          # previously interrupted cycle, so we always start from a clean state.
+          - action: switch.turn_off
+            target:
+              entity_id: !input watering_switches
+
           # STEP 1 — Update dry-days counter (always, even if cancelled)
           - choose:
               - conditions:
@@ -510,8 +557,9 @@ action:
                           - condition: template
                             value_template: "{{ notif_active }}"
                         sequence:
-                          - action: "{{ notif_service }}"
+                          - action: persistent_notification.create
                             data:
+                              notification_id: "{{ notif_prefix }}"
                               title: "🚫 Watering cancelled"
                               message: |-
                                 Watering cancelled: {{ cancel_reason }}.
@@ -555,8 +603,9 @@ action:
                   - condition: template
                     value_template: "{{ notif_active }}"
                 sequence:
-                  - action: "{{ notif_service }}"
+                  - action: persistent_notification.create
                     data:
+                      notification_id: "{{ notif_prefix }}"
                       title: "🌱 Smart watering started"
                       message: |-
                         Duration: {{ final_duration_per_zone }} min/zone × {{ zones_count }} zones
@@ -634,8 +683,9 @@ action:
                                 - condition: template
                                   value_template: "{{ notif_active }}"
                               sequence:
-                                - action: "{{ notif_service }}"
+                                - action: persistent_notification.create
                                   data:
+                                    notification_id: "{{ notif_prefix }}"
                                     title: "💧 Zone {{ repeat.index }}/{{ zones_count }} done: {{ zone_friendly }}"
                                     message: |-
                                       ✅ '{{ zone_friendly }}' finished.
@@ -731,8 +781,9 @@ action:
                   - condition: template
                     value_template: "{{ notif_active }}"
                 sequence:
-                  - action: "{{ notif_service }}"
+                  - action: persistent_notification.create
                     data:
+                      notification_id: "{{ notif_prefix }}"
                       title: "✅ Watering complete"
                       message: |-
                         🏁 Cycle finished — {{ zones_count }} zone(s) in {{ cycle_real_minutes }} min.
@@ -780,8 +831,9 @@ action:
                   - condition: template
                     value_template: "{{ notif_active }}"
                 sequence:
-                  - action: "{{ notif_service }}"
+                  - action: persistent_notification.create
                     data:
+                      notification_id: "{{ notif_prefix }}_restart"
                       title: "♻️ Watering safety-off after restart"
                       message: |-
                         ⚠️ HA was restarted — an ongoing sequential cycle
@@ -789,6 +841,51 @@ action:
                         ✋ All {{ zones_count }} zone(s) forced OFF: {{ zones_friendly_csv }}
                         🕒 At {{ now().strftime('%H:%M:%S') }}
                         ▶️ Next scheduled cycle: {{ watering_t }}
+            default: []
+
+      # ════════════════════════════════════════════════════════════
+      # CASE 3: Safety watchdog — a valve stayed ON too long → force OFF
+      # Runs only when no cycle is active (mode:single suppresses it during
+      # a normal run), i.e. exactly the "stuck valve after interruption" case.
+      # ════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: "valve_watchdog"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input watering_switches
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (status_helper | length) > 0 }}"
+                sequence:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: >-
+                        🛟 Safety-off {{ now().strftime('%d/%m %H:%M') }} — a valve was ON > {{ safety_max_min }} min (interrupted cycle?)
+            default: []
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notif_active }}"
+                sequence:
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: "{{ notif_prefix }}_watchdog"
+                      title: "🛟 Watering safety-off (watchdog)"
+                      message: |-
+                        ⚠️ A valve stayed ON longer than {{ safety_max_min }} min
+                        and was force-closed.
+                        This usually means a watering cycle was interrupted —
+                        e.g. automations were reloaded or the blueprint was
+                        edited WHILE it was watering.
+                        ✋ All zone(s) forced OFF: {{ zones_friendly_csv }}
+                        🕒 At {{ now().strftime('%H:%M:%S') }}
             default: []
 
     default: []
