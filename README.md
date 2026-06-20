@@ -68,6 +68,7 @@ duration_per_zone = base_duration_minutes
 - 💧 Per-zone + total water tracking (SONOFF SWV style) + optional cumulative liters
 - 📊 Real-time status + 📚 compact 5-session history (via `input_text`)
 - 🔔 Rich **Home Assistant persistent notifications** (stay in the notifications panel / bell icon, updated in place via `notification_id_prefix`): started (full weather breakdown), per-zone (measured liters), complete (per-zone recap + total), cancelled (reason), restart safety-off
+- 🛟 **Pump anti-leak protection**: long runs are auto-split into segments and separated by valves-closed **reset pauses**, so a low-flow zone never trips a pump that faults on a continuous "leak" (continuous time tracked **across** zones)
 - ♻️ HA-restart safety: all valves forced OFF (a sequence can't be resumed)
 
 **Migrating from v6 (single-zone):** input names are kept compatible. The
@@ -78,7 +79,7 @@ key differences:
 | `watering_switch`      | `watering_switches` (select one **or** more) |
 | `water_volume_sensor`  | `water_volume_sensors` (one per zone, same order) |
 | `base_duration_minutes`| now **per zone**                             |
-| `max_duration_minutes` | now the **total** cap (all zones summed)     |
+| `max_duration_minutes` | now the **per-zone** cap (each zone individually) |
 | `min_duration_minutes` | per-zone minimum (below → whole cycle cancelled) |
 
 Existing helpers (`input_number.smart_watering_dry_days`,

@@ -33,6 +33,8 @@ blueprint:
     • Rich Home Assistant PERSISTENT notifications (start, per zone, complete,
       cancelled, restart) that stay in the notifications panel / bell icon
     • HA-restart safety: all valves forced OFF (a sequence cannot be resumed)
+    • Pump anti-leak protection: long runs are auto-split into segments with
+      valves-closed reset pauses so a low-flow pump never trips its fault timer
 
     ────────── MIGRATING FROM v6 (single-zone) ──────────
 
@@ -40,7 +42,8 @@ blueprint:
       • watering_switch  → watering_switches   (select one OR several)
       • water_volume_sensor → water_volume_sensors (one per zone, same order)
       • base_duration_minutes is now PER ZONE
-      • max_duration_minutes is now the TOTAL cap (all zones summed)
+      • max_duration_minutes is now the PER-ZONE cap (applied to each zone
+        individually, no longer the summed total)
       • min_duration_minutes is the PER-ZONE minimum below which the whole
         cycle is cancelled
     Your existing helpers (smart_watering_dry_days, etc.) are reused as-is.
@@ -181,10 +184,11 @@ blueprint:
           mode: slider
 
     max_duration_minutes:
-      name: "Max TOTAL cycle duration (minutes) — safety cap"
+      name: "Max duration PER ZONE (minutes) — safety cap"
       description: >
-        Upper bound on the whole cycle (all zones summed). If exceeded, each
-        zone duration is shortened proportionally.
+        Upper bound on EACH zone's run-time (applied per zone, not to the
+        summed total). If a zone's computed duration exceeds this, that zone
+        is shortened to this value.
       default: 120
       selector:
         number:
@@ -230,6 +234,52 @@ blueprint:
           max: 60
           step: 1
           unit_of_measurement: "s"
+          mode: slider
+
+    # ════════════ PUMP PROTECTION (anti leak-detection) ════════════
+    enable_pump_protection:
+      name: "Enable pump anti-leak protection"
+      description: >
+        Some pumps switch to a fault/safety mode when they detect a very low
+        flow (interpreted as a "leak") running continuously for too long.
+        Enable this to make sure the pump never runs longer than the limit
+        below without a reset pause. Watering is automatically split into
+        segments and reset pauses are inserted as needed.
+      default: true
+      selector:
+        boolean: {}
+
+    max_continuous_pump_minutes:
+      name: "Max CONTINUOUS pump run (minutes)"
+      description: >
+        The pump must never run (any valve open) longer than this WITHOUT a
+        reset pause. Keep it safely BELOW your pump's leak-detection timeout
+        (e.g. 55 when the pump faults at 60 min). One or several zones are
+        split into segments shorter than this value. The continuous time is
+        tracked ACROSS zones, because the short inter-zone pause is NOT long
+        enough to reset the pump.
+      default: 55
+      selector:
+        number:
+          min: 5
+          max: 120
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    pump_reset_pause_minutes:
+      name: "Pump reset pause duration (minutes)"
+      description: >
+        Duration of the all-valves-closed pause inserted to reset the pump's
+        leak detection. Set it to at least the time YOUR pump needs to clear
+        its fault timer (for the typical case here: 5 min).
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          step: 1
+          unit_of_measurement: "min"
           mode: slider
 
     # ════════════ HELPERS ════════════
@@ -295,12 +345,13 @@ blueprint:
         If ANY valve stays ON continuously longer than this, the blueprint
         force-closes ALL valves.
 
-        Set it ABOVE the longest a single zone can normally run (with the
-        defaults that's well under 30 min). Note: thanks to mode:single, this
-        watchdog never interferes with a normal running cycle — it only acts
-        when the automation is NOT running but a valve is still ON (the exact
-        stuck-valve situation).
-      default: 30
+        Set it ABOVE the longest a single valve can stay ON in one go. With
+        pump protection enabled that is "Max CONTINUOUS pump run" (default
+        55 min), otherwise it is your per-zone cap. Note: thanks to
+        mode:single, this watchdog never interferes with a normal running
+        cycle — it only acts when the automation is NOT running but a valve is
+        still ON (the exact stuck-valve situation).
+      default: 65
       selector:
         number:
           min: 5
@@ -345,7 +396,7 @@ variables:
   rain_cancel_th: !input rain_cancel_threshold
   rain_reduce_th: !input rain_reduction_threshold
   base_dur_min: !input base_duration_minutes
-  max_total_min: !input max_duration_minutes
+  max_per_zone_min: !input max_duration_minutes
   min_dur_min: !input min_duration_minutes
   pause_s: !input pause_between_zones_seconds
   settle_s: !input sensor_settle_delay
@@ -356,6 +407,9 @@ variables:
   notif_active: !input enable_notifications
   notif_prefix: !input notification_id_prefix
   safety_max_min: !input safety_max_valve_minutes
+  pump_protect_on: !input enable_pump_protection
+  max_cont_run_min: !input max_continuous_pump_minutes
+  reset_pause_min: !input pump_reset_pause_minutes
 
   tracking_enabled: >
     {{ (water_sensors | count) > 0
@@ -454,8 +508,7 @@ variables:
 
   capped_duration_per_zone: >
     {% set raw = raw_duration_per_zone | float(0) %}
-    {% set n = zones_count | int(1) %}
-    {% set max_per_zone = (max_total_min | float(120)) / (n if n > 0 else 1) %}
+    {% set max_per_zone = max_per_zone_min | float(120) %}
     {{ [raw, max_per_zone] | min | round(1) }}
 
   cancel_due_to_rain: "{{ (coef_rain | float(1)) == 0 }}"
@@ -472,10 +525,68 @@ variables:
     {% endif %}
 
   final_duration_per_zone: "{{ 0 if will_cancel else capped_duration_per_zone | float(0) }}"
+
+  # ──── Pump anti-leak plan ────
+  # Ordered list of steps for the whole cycle. Each step is one of:
+  #   {type:'water', switch, zone_idx, seconds, seg, zone_first, zone_last}
+  #   {type:'pause', seconds, reset}      reset=true → long pump-reset pause
+  # The continuous pump run is tracked ACROSS zones; whenever it would exceed
+  # the budget (Max CONTINUOUS pump run) a reset pause with all valves closed
+  # is inserted, so a low-flow pump never reaches its leak-detection timeout.
+  # With pump protection disabled the budget is "infinite" → exactly one water
+  # segment per zone and only the short inter-zone pauses (legacy behaviour).
+  watering_plan: >
+    {% set budget = ((max_cont_run_min | float(55)) * 60) if pump_protect_on else 10**12 %}
+    {% set zdur = (final_duration_per_zone | float(0)) * 60 %}
+    {% set short_pause = pause_s | float(0) %}
+    {% set reset_pause = (reset_pause_min | float(5)) * 60 %}
+    {% set per_zone_max = ((zdur / ([budget, 1] | max)) | round(0, 'ceil') | int) + 3 %}
+    {% set ns = namespace(plan=[], running=0.0) %}
+    {% for z in watering_zones %}
+      {% set zlast = loop.last %}
+      {% set zidx = loop.index0 %}
+      {% set rem = namespace(left=zdur, seg=0) %}
+      {% for _ in range(per_zone_max) %}
+        {% if rem.left > 0.001 %}
+          {% set avail = budget - ns.running %}
+          {% if avail <= 0.001 %}
+            {% set ns.plan = ns.plan + [{'type': 'pause', 'seconds': (reset_pause | round | int), 'reset': true}] %}
+            {% set ns.running = 0.0 %}
+            {% set avail = budget %}
+          {% endif %}
+          {% set chunk = [rem.left, avail] | min %}
+          {% set rem.seg = rem.seg + 1 %}
+          {% set rem.left = rem.left - chunk %}
+          {% set ns.running = ns.running + chunk %}
+          {% set ns.plan = ns.plan + [{
+                'type': 'water', 'switch': z, 'zone_idx': zidx,
+                'seconds': (chunk | round | int), 'seg': rem.seg,
+                'zone_first': (rem.seg == 1), 'zone_last': (rem.left <= 0.001)}] %}
+          {% if (rem.left <= 0.001) and (not zlast) and (short_pause > 0) %}
+            {% set ns.plan = ns.plan + [{'type': 'pause', 'seconds': (short_pause | round | int), 'reset': false}] %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+    {{ ns.plan }}
+
+  reset_pause_count: >
+    {% set ns = namespace(c=0) %}
+    {% for s in watering_plan %}
+      {% if s.type == 'pause' and s.reset %}{% set ns.c = ns.c + 1 %}{% endif %}
+    {% endfor %}
+    {{ ns.c }}
+
   estimated_total_minutes: >
-    {{ (0 if will_cancel
-        else (final_duration_per_zone | float(0)) * (zones_count | int(0))
-             + (zones_count | int(0) - 1) * (pause_s | float(0)) / 60) | round(1) }}
+    {% if will_cancel %}
+      0
+    {% else %}
+      {% set ns = namespace(s=0.0) %}
+      {% for st in watering_plan %}
+        {% set ns.s = ns.s + (st.seconds | float(0)) %}
+      {% endfor %}
+      {{ (ns.s / 60) | round(1) }}
+    {% endif %}
 
   is_heatwave: "{{ current_temp | float(0) >= heatwave_th | float(35) }}"
 
@@ -595,7 +706,7 @@ action:
                       entity_id: "{{ status_helper }}"
                     data:
                       value: >-
-                        🌱 Running ({{ zones_count }} zones × {{ final_duration_per_zone }}min, ETA {{ estimated_total_minutes }}min)
+                        🌱 Running ({{ zones_count }} zones × {{ final_duration_per_zone }}min, ETA {{ estimated_total_minutes }}min{% if reset_pause_count | int(0) > 0 %}, {{ reset_pause_count }}× reset pause{% endif %})
             default: []
 
           - choose:
@@ -611,6 +722,7 @@ action:
                         Duration: {{ final_duration_per_zone }} min/zone × {{ zones_count }} zones
                         (base {{ base_dur_min }} min × coef {{ coef_total }})
                         ⏱ Estimated total: ~{{ estimated_total_minutes }} min
+                        {% if reset_pause_count | int(0) > 0 %}🛟 Includes {{ reset_pause_count }} pump-reset pause(s) of {{ reset_pause_min }} min (anti leak-detection){% endif %}
                         📋 Order: {{ zones_friendly_csv }}
                         🕒 Started at {{ now().strftime('%H:%M:%S') }}
                         ────── Details ──────
@@ -623,86 +735,109 @@ action:
                         {% if tracking_enabled %}💦 Per-zone water tracking enabled{% endif %}
             default: []
 
-          # STEP 4 — Sequential cycle: one zone at a time
+          # STEP 4 — Execute the pre-computed plan: water segments (one zone
+          # at a time, possibly split) interleaved with pump-reset pauses so
+          # the pump never runs continuously longer than allowed.
           - repeat:
-              for_each: "{{ watering_zones }}"
+              for_each: "{{ watering_plan }}"
               sequence:
-                - variables:
-                    zone_idx: "{{ repeat.index - 1 }}"
-                    zone_switch: "{{ repeat.item }}"
-                    zone_friendly: "{{ state_attr(repeat.item, 'friendly_name') or repeat.item }}"
-                    zone_start_liters: >
-                      {% if tracking_enabled %}
-                        {{ states(water_sensors[zone_idx]) | float(0) }}
-                      {% else %}
-                        0
-                      {% endif %}
-                    zone_start_ts: "{{ now().timestamp() }}"
-
+                # ───── WATER segment ─────
                 - choose:
                     - conditions:
                         - condition: template
-                          value_template: "{{ (status_helper | length) > 0 }}"
+                          value_template: "{{ repeat.item.type == 'water' }}"
                       sequence:
-                        - action: input_text.set_value
-                          target:
-                            entity_id: "{{ status_helper }}"
-                          data:
-                            value: >-
-                              🌱 Zone {{ repeat.index }}/{{ zones_count }}: {{ zone_friendly }} ({{ final_duration_per_zone }}min)
-                  default: []
-
-                # Open valve
-                - action: switch.turn_on
-                  target:
-                    entity_id: "{{ zone_switch }}"
-
-                # Run for the computed duration (single rounded seconds value)
-                - delay:
-                    seconds: "{{ (final_duration_per_zone | float(0) * 60) | round | int }}"
-
-                # Close valve
-                - action: switch.turn_off
-                  target:
-                    entity_id: "{{ zone_switch }}"
-
-                # If tracking: settle, measure & notify per zone
-                - choose:
-                    - conditions:
-                        - condition: template
-                          value_template: "{{ tracking_enabled }}"
-                      sequence:
-                        - delay:
-                            seconds: "{{ settle_s | int }}"
                         - variables:
-                            zone_end_liters: "{{ states(water_sensors[zone_idx]) | float(0) }}"
-                            zone_consumed: "{{ (zone_end_liters - zone_start_liters) | round(2) }}"
-                            zone_real_minutes: "{{ ((now().timestamp() - zone_start_ts) / 60) | round(1) }}"
+                            zone_idx: "{{ repeat.item.zone_idx }}"
+                            zone_no: "{{ repeat.item.zone_idx + 1 }}"
+                            zone_switch: "{{ repeat.item.switch }}"
+                            zone_friendly: "{{ state_attr(repeat.item.switch, 'friendly_name') or repeat.item.switch }}"
+
+                        # Status update at the START of each zone
                         - choose:
                             - conditions:
                                 - condition: template
-                                  value_template: "{{ notif_active }}"
+                                  value_template: "{{ (status_helper | length) > 0 and repeat.item.zone_first }}"
                               sequence:
-                                - action: persistent_notification.create
+                                - action: input_text.set_value
+                                  target:
+                                    entity_id: "{{ status_helper }}"
                                   data:
-                                    notification_id: "{{ notif_prefix }}"
-                                    title: "💧 Zone {{ repeat.index }}/{{ zones_count }} done: {{ zone_friendly }}"
-                                    message: |-
-                                      ✅ '{{ zone_friendly }}' finished.
-                                      ⏱ Duration: {{ zone_real_minutes }} min (target {{ final_duration_per_zone }} min)
-                                      💦 Water used: {{ zone_consumed }} L
-                                      📊 Sensor: {{ zone_start_liters }} L → {{ zone_end_liters }} L
+                                    value: >-
+                                      🌱 Zone {{ zone_no }}/{{ zones_count }}: {{ zone_friendly }} ({{ final_duration_per_zone }}min{% if reset_pause_count | int(0) > 0 %}, anti-leak{% endif %})
                           default: []
+
+                        # Open valve → run the segment → close valve
+                        - action: switch.turn_on
+                          target:
+                            entity_id: "{{ zone_switch }}"
+                        - delay:
+                            seconds: "{{ repeat.item.seconds | int }}"
+                        - action: switch.turn_off
+                          target:
+                            entity_id: "{{ zone_switch }}"
+
+                        # On the LAST segment of a zone, if tracking: settle, measure & notify
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ tracking_enabled and repeat.item.zone_last }}"
+                              sequence:
+                                - delay:
+                                    seconds: "{{ settle_s | int }}"
+                                - variables:
+                                    zone_start_liters: "{{ initial_liters[zone_idx] | float(0) }}"
+                                    zone_end_liters: "{{ states(water_sensors[zone_idx]) | float(0) }}"
+                                    zone_consumed: "{{ (states(water_sensors[zone_idx]) | float(0) - initial_liters[zone_idx] | float(0)) | round(2) }}"
+                                - choose:
+                                    - conditions:
+                                        - condition: template
+                                          value_template: "{{ notif_active }}"
+                                      sequence:
+                                        - action: persistent_notification.create
+                                          data:
+                                            notification_id: "{{ notif_prefix }}"
+                                            title: "💧 Zone {{ zone_no }}/{{ zones_count }} done: {{ zone_friendly }}"
+                                            message: |-
+                                              ✅ '{{ zone_friendly }}' finished.
+                                              ⏱ Watering time: {{ final_duration_per_zone }} min{% if repeat.item.seg | int(1) > 1 %} (split into {{ repeat.item.seg }} segments){% endif %}
+                                              💦 Water used: {{ zone_consumed }} L
+                                              📊 Sensor: {{ zone_start_liters }} L → {{ zone_end_liters }} L
+                                  default: []
                   default: []
 
-                # Pause before next zone (skip on last)
+                # ───── PAUSE step ─────
                 - choose:
+                    # Long pump-reset pause: force ALL valves closed, then wait
                     - conditions:
                         - condition: template
-                          value_template: "{{ not repeat.last and (pause_s | int) > 0 }}"
+                          value_template: "{{ repeat.item.type == 'pause' and repeat.item.reset }}"
+                      sequence:
+                        - action: switch.turn_off
+                          target:
+                            entity_id: !input watering_switches
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ (status_helper | length) > 0 }}"
+                              sequence:
+                                - action: input_text.set_value
+                                  target:
+                                    entity_id: "{{ status_helper }}"
+                                  data:
+                                    value: >-
+                                      🛟 Pump reset pause {{ reset_pause_min }}min (anti leak-detection)
+                          default: []
+                        - delay:
+                            seconds: "{{ repeat.item.seconds | int }}"
+                    # Short pause between two zones
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ repeat.item.type == 'pause' and not repeat.item.reset }}"
                       sequence:
                         - delay:
-                            seconds: "{{ pause_s | int }}"
+                            seconds: "{{ repeat.item.seconds | int }}"
+                  default: []
 
           # STEP 5 — Post-cycle: totals, helpers, history, final notif
           - variables:
@@ -786,7 +921,7 @@ action:
                       title: "✅ Watering complete"
                       message: |-
                         🏁 {{ zones_count }} zone(s) watered — actual total {{ cycle_real_minutes }} min (planned ~{{ estimated_total_minutes }} min).
-
+                        {% if reset_pause_count | int(0) > 0 %}🛟 {{ reset_pause_count }} pump-reset pause(s) of {{ reset_pause_min }} min inserted (anti leak-detection).{% endif %}
                         ━━━━━ 💧 RESULT ━━━━━
                         {% if tracking_enabled %}💦 Total water used: {{ total_consumed }} L
                         📋 Per zone ({{ final_duration_per_zone }} min each):
@@ -796,7 +931,7 @@ action:
                         {% endif %}
                         ━━━━━ ⏱ DURATION CALC ━━━━━
                         Base {{ base_dur_min }} min × total coef {{ coef_total }} = {{ raw_duration_per_zone }} min/zone
-                        {% if raw_duration_per_zone | float(0) > final_duration_per_zone | float(0) %}⚠️ Capped to {{ final_duration_per_zone }} min/zone (total cap {{ max_total_min }} min){% else %}✅ Applied {{ final_duration_per_zone }} min/zone (under the {{ max_total_min }} min total cap){% endif %}
+                        {% if raw_duration_per_zone | float(0) > final_duration_per_zone | float(0) %}⚠️ Capped to {{ final_duration_per_zone }} min/zone (per-zone cap {{ max_per_zone_min }} min){% else %}✅ Applied {{ final_duration_per_zone }} min/zone (under the {{ max_per_zone_min }} min per-zone cap){% endif %}
 
                         ━━━━━ 🌦 CONDITIONS → COEFFICIENTS ━━━━━
                         coef_total = {{ coef_temp }} × {{ coef_humidity }} × {{ coef_wind }} × {{ coef_dry_days }} × {{ coef_rain }} × {{ coef_forecast }} = {{ coef_total }}

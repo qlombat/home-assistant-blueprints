@@ -101,9 +101,21 @@ Lors de la création de l'automatisation :
 - **Pluie annulation** : `5mm`
 - **Pluie réduction** : `2mm`
 - **Durée base (par zone)** : `15 min`
-- **Durée max (total, toutes zones)** : `120 min`
+- **Durée max (par zone)** : `120 min`
 - **Durée min (par zone)** : `5 min`
 - **Pause entre zones** : `30 s`
+
+### Protection pompe (anti-fuite)
+Certaines pompes se mettent en sécurité si elles détectent un débit très
+faible (assimilé à une « fuite ») pendant trop longtemps en continu. La
+protection découpe automatiquement l'arrosage en segments et insère des
+pauses **vannes fermées** pour réinitialiser la détection. Le temps continu
+est suivi **d'une zone à l'autre** (la courte pause inter-zones ne suffit pas
+à réinitialiser la pompe).
+- **Activer la protection pompe** : `Oui`
+- **Run continu max de la pompe** : `55 min` (sous le seuil de défaut de la pompe, p.ex. 60 min)
+- **Durée de la pause de reset** : `5 min` (au moins le temps que la pompe met à se réinitialiser)
+- **Watchdog sécurité** : `65 min` (à garder **au-dessus** du run continu max)
 
 ## 📊 Dashboard
 
